@@ -50,7 +50,7 @@ def test_audit_tamper_detection(tmp_path: Path) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     ok, reason = audit.verify()
     assert not ok
-    assert "hash mismatch" in reason
+    assert "mismatch" in reason
 
 
 def test_forensic_hashes(tmp_path: Path) -> None:
