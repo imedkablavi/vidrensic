@@ -14,6 +14,7 @@ from vidrensic.acquisition.linux import inspect_source, require_safe_source
 from vidrensic.core.case import Case
 from vidrensic.plugins.registry import PluginRegistry
 from vidrensic.plugins.wfs import WFSPlugin
+from vidrensic.plugins.wfs.recovery import recover_segment
 
 
 def _int_auto(value: str) -> int:
@@ -21,6 +22,18 @@ def _int_auto(value: str) -> int:
         return int(value, 0)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"invalid integer: {value}") from exc
+
+
+def _csv_ints(value: str) -> list[int]:
+    try:
+        result = [int(part.strip(), 0) for part in value.split(",") if part.strip()]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected comma-separated integer values") from exc
+    if not result:
+        raise argparse.ArgumentTypeError("at least one integer is required")
+    if len(set(result)) != len(result):
+        raise argparse.ArgumentTypeError("duplicate fragment values are not allowed")
+    return result
 
 
 def _date(value: str) -> date:
@@ -83,6 +96,19 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--date", type=_date, required=True)
     scan.add_argument("--data-offset", type=_int_auto, default=0)
     scan.add_argument("--json", action="store_true")
+
+    recover = sub.add_parser("recover", help="reconstruct proprietary recordings")
+    recover_sub = recover.add_subparsers(dest="recover_command")
+    recover_wfs = recover_sub.add_parser("wfs", help="recover one WFS recording boundary")
+    recover_wfs.add_argument("source", type=Path)
+    recover_wfs.add_argument("--starts", type=_csv_ints, required=True)
+    recover_wfs.add_argument("--stop-fragment", type=_int_auto, required=True)
+    recover_wfs.add_argument("--out", type=Path, required=True)
+    recover_wfs.add_argument("--label", required=True)
+    recover_wfs.add_argument("--data-offset", type=_int_auto, default=0)
+    recover_wfs.add_argument("--near", type=int, default=32)
+    recover_wfs.add_argument("--far", type=int, default=4096)
+    recover_wfs.add_argument("--case", type=Path)
 
     return parser
 
@@ -187,8 +213,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "scan":
-        # A scanner only opens the source read-only, but direct block-device
-        # analysis still follows the evidence safety policy.
         require_safe_source(args.source)
         registry = default_registry()
         if args.plugin == "auto":
@@ -224,6 +248,60 @@ def main(argv: list[str] | None = None) -> int:
             for item in boundaries:
                 frags = ",".join(str(value) for value in item.start_fragments)
                 print(f"{item.label}\tcount={len(item.start_fragments)}\tfragments={frags}")
+        return 0
+
+    if args.command == "recover" and args.recover_command == "wfs":
+        require_safe_source(args.source)
+        case = Case.load(args.case) if args.case else None
+        details = {
+            "source": str(args.source),
+            "starts": args.starts,
+            "stop_fragment": args.stop_fragment,
+            "output": str(args.out),
+            "label": args.label,
+            "data_offset": args.data_offset,
+            "near": args.near,
+            "far": args.far,
+        }
+        if case:
+            case.audit.append("wfs.recovery.started", details, actor=case.examiner)
+        try:
+            candidates, manifest = recover_segment(
+                args.source,
+                args.starts,
+                args.stop_fragment,
+                args.out,
+                label=args.label,
+                data_offset=args.data_offset,
+                near=args.near,
+                far=args.far,
+            )
+        except Exception as exc:
+            if case:
+                case.audit.append(
+                    "wfs.recovery.failed",
+                    {**details, "error": f"{type(exc).__name__}: {exc}"},
+                    actor=case.examiner,
+                )
+            raise
+        if case:
+            case.audit.append(
+                "wfs.recovery.finished",
+                {
+                    **details,
+                    "manifest": str(manifest),
+                    "candidate_count": len(candidates),
+                    "statuses": [candidate.status for candidate in candidates],
+                },
+                actor=case.examiner,
+            )
+        print(f"manifest={manifest}")
+        for candidate in candidates:
+            print(
+                f"{candidate.candidate_id}\tstatus={candidate.status}\t"
+                f"fragments={len(candidate.fragments)}\tbytes={candidate.native_bytes}\t"
+                f"output={candidate.native_output}"
+            )
         return 0
 
     parser.print_help()
