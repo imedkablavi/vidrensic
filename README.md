@@ -1,117 +1,255 @@
-# Cybrex Video Forensics
+<div align="center">
 
-**Cybrex Video Forensics (CVF)** is a Linux-first forensic platform for acquisition, reconstruction, validation, review, and export of proprietary DVR/NVR surveillance video.
+# VIDRENSIC
 
-> Status: **0.1.0-alpha architecture bootstrap**. This repository is intentionally separate from the stable `WFS-5.0` recovery repository.
+### DVR / NVR Evidence Reconstruction & Video Forensics
 
-## Product direction
+**Acquire. Reconstruct. Validate. Review. Export.**
 
-CVF is being designed as a forensic case platform rather than a single-format recovery script. WFS is the first recovery plugin, with a plugin architecture intended to support additional proprietary DVR/NVR filesystems and container variants over time.
+![Stage](https://img.shields.io/badge/stage-alpha-orange)
+![Platform](https://img.shields.io/badge/platform-Linux-222222?logo=linux)
+![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
+![License](https://img.shields.io/badge/license-Proprietary-red)
+![Evidence](https://img.shields.io/badge/evidence-read--only%20first-0A7B83)
 
-Core goals:
+**A forensic-first platform for proprietary surveillance storage.**
 
-- preserve source evidence and default to read-only workflows;
-- make every destructive or evidence-affecting action explicit and auditable;
-- hash sources, acquisitions, recovered native streams, and exported review copies;
-- support resumable acquisition using GNU ddrescue maps;
-- separate native evidence, reconstructed streams, playable proxies, and analyst decisions;
-- reconstruct fragmented/deleted/inaccessible recordings using multiple independent evidence signals;
-- preserve original timing evidence instead of inventing missing timestamps;
-- provide deterministic QC with clear PASS / REVIEW / FAIL reasons;
-- provide synchronized multi-camera review, timeline navigation, thumbnails, bookmarks, and controlled export;
-- generate reproducible technical and chain-of-custody reports;
-- expose both CLI and future workstation/API interfaces from the same forensic core.
+</div>
 
-## High-level architecture
+---
+
+## What is Vidrensic?
+
+Vidrensic is a Linux-first forensic platform for recovering and examining video from proprietary DVR/NVR storage systems where ordinary filesystem undelete and generic file carving are not enough.
+
+It is designed around the reality of surveillance evidence: interleaved camera fragments, overwritten metadata, proprietary timestamps, partial recordings, damaged media, unstable camera-slot ordering, unusual codecs, and source disks that should be treated as evidence rather than repaired in place.
+
+The project is intentionally broader than one filesystem. **WFS is the first recovery plugin**, while the core is being built to support additional DVR/NVR formats through isolated plugins.
+
+> **Current status:** `0.2.0-alpha`. The architecture is usable for development and validation, but the project must not yet be represented as independently validated forensic software.
+
+---
+
+## Why this project exists
+
+Traditional recovery tools usually answer: “Can I find a file?”
+
+Vidrensic must answer a harder set of questions:
+
+- Which physical fragments belong to the same recording?
+- Which fragments belong to different cameras recorded at the same time?
+- Is a one-hour output actually one coherent camera stream?
+- Was part of the recording overwritten or merely unindexed?
+- Is the timestamp native evidence or a derived estimate?
+- Can the recovered stream decode at the beginning, middle, and end?
+- What changed between source, reconstructed native stream, and review copy?
+- Can another examiner reproduce the result from the same evidence and parameters?
+
+Those questions drive the design.
+
+---
+
+## Forensic pipeline
 
 ```text
-Evidence source
-   |
-   v
-Acquisition engine -----> source hashes / SMART / ddrescue map / audit
-   |
-   v
-Format profiler -----> plugin registry
-   |
-   +---- WFS plugin
-   +---- future DVR/NVR plugins
-   |
-   v
-Fragment / recording reconstruction
-   |
-   v
-Native stream extraction -----> timestamp sidecars
-   |
-   v
-Media validation / corruption map / keyframe map
-   |
-   +---- forensic master
-   +---- playable review proxy
-   |
-   v
-Review workstation -----> KEEP / REVIEW / bookmarks / notes
-   |
-   v
-Evidence export -----> hashes / manifest / HTML/PDF reports
+┌──────────────────────────────┐
+│ Evidence Source              │
+│ disk • image • clone         │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ Source Safety & Acquisition  │
+│ RO check • SMART • ddrescue  │
+│ hashes • range acquisition   │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ Format Detection / Plugins   │
+│ WFS • future DVR/NVR formats │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ Recording Reconstruction     │
+│ fragments • graph evidence   │
+│ timestamps • packet joins    │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ Native Stream Extraction     │
+│ HEVC/H.264 • metadata        │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ Validation & QC              │
+│ ffprobe • decode • timeline  │
+│ corruption • ambiguity       │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ Review Workstation           │
+│ matrix • timeline • KEEP     │
+│ notes • bookmarks • preview  │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ Evidence Export              │
+│ native • review • hashes     │
+│ manifests • audit • reports  │
+└──────────────────────────────┘
 ```
 
-## Development principles
+---
 
-1. **Fail closed.** Ambiguous evidence is REVIEW, not PASS.
-2. **Never modify the evidence source.** Device acquisition requires read-only verification or an explicit override recorded in the audit trail.
-3. **Native first.** Prefer extraction/stream-copy over transcoding when technically safe.
-4. **No invented time.** Missing proprietary timestamp data remains missing unless an analyst explicitly creates a derived/interpolated timeline.
-5. **Reproducible jobs.** Parameters, tool versions, hashes, and outputs are recorded.
-6. **Separation of evidence and convenience copies.** Review proxies are derived artifacts and are never presented as native evidence.
-7. **Plugin isolation.** Proprietary filesystem/container knowledge lives in plugins instead of leaking into the case engine.
+## Current capabilities
 
-## Planned CLI
+| Area | Status | What exists now |
+|---|---:|---|
+| Case engine | ✅ | Structured case directories and machine-readable case metadata |
+| Audit | ✅ | Append-only JSONL events with SHA-256 hash chaining and verification |
+| Hashing | ✅ | SHA-256/SHA-512 streaming hashes |
+| Linux source inspection | ✅ | File/block-device inspection, source size, RO state and mount reporting |
+| Acquisition planning | ✅ | Safe GNU ddrescue command generation, ranges, map files and capacity checks |
+| Acquisition execution | 🧪 | Controlled subprocess execution; no shell interpolation |
+| Plugin framework | ✅ | Isolated format plugin API and registry |
+| WFS timestamps | ✅ | Decode/encode support for observed WFS timestamp words |
+| WFS record parser | ✅ | FD/FE/FC/FA/F9 framing with conservative length validation |
+| WFS timeline scan | ✅ | Fragment-boundary recording-start discovery by date |
+| WFS reconstruction | 🧪 | Conservative multi-stream fragment continuation with mutual exclusion |
+| Native HEVC extraction | 🧪 | Packet payload extraction from reconstructed WFS chains |
+| Media probing | ✅ | Structured ffprobe integration |
+| Review workstation | 🚧 | Next major milestone |
+| Court/report package | 🚧 | Planned after case/export schema stabilizes |
+
+Legend: ✅ implemented • 🧪 implemented but still being validated • 🚧 planned/in progress
+
+---
+
+## Safety model
+
+Vidrensic follows several non-negotiable rules:
+
+1. **The evidence source is never repaired or mounted by Vidrensic.**
+2. **Block devices are expected to be read-only.** Write-enabled devices are rejected unless an explicit forensic override is used and audited.
+3. **Ambiguity is preserved.** A technically playable result is not automatically a forensic PASS.
+4. **Native evidence and review proxies remain separate.**
+5. **Original timestamps are preserved.** Derived/interpolated time must be labeled as derived.
+6. **Destructive actions are opt-in.** Cleanup/export decisions never silently modify source evidence.
+7. **Every important operation is intended to be reproducible from logged parameters and hashes.**
+
+---
+
+## CLI preview
 
 ```bash
-cvf case create CASE-2026-001 --root /cases
-cvf source inspect /dev/sdb
-cvf acquire /dev/sdb --case /cases/CASE-2026-001 --mode ddrescue
-cvf plugins list
-cvf scan --case /cases/CASE-2026-001 --plugin auto
-cvf recover --case /cases/CASE-2026-001 --date 2026-08-09
-cvf review --case /cases/CASE-2026-001
-cvf export --case /cases/CASE-2026-001 --profile forensic-master
+# Create a case
+vidrensic case create CASE-2026-001 --root /cases --examiner "Examiner"
+
+# Inspect a source before acquisition
+vidrensic source inspect /dev/sdb
+
+# Build a selective ddrescue acquisition plan
+vidrensic acquire plan /dev/sdb \
+  --output /cases/CASE-2026-001/acquisitions/day09.raw \
+  --map /cases/CASE-2026-001/acquisitions/day09.map \
+  --offset 1122820554752 \
+  --size 12582912000
+
+# Run the acquisition after safety checks
+vidrensic acquire run /dev/sdb \
+  --output /cases/CASE-2026-001/acquisitions/day09.raw \
+  --map /cases/CASE-2026-001/acquisitions/day09.map \
+  --offset 1122820554752 \
+  --size 12582912000 \
+  --case /cases/CASE-2026-001
+
+# List forensic format plugins
+vidrensic plugins list
+
+# Scan WFS recording starts
+vidrensic scan /cases/CASE-2026-001/acquisitions/day09.raw \
+  --plugin wfs \
+  --date 2026-08-09
 ```
 
-The CLI will only expose features once their safety checks and regression tests are in place.
+---
 
-## Repository layout
+## Repository structure
 
 ```text
-cvf/                    Python package
-  acquisition/          source inspection and acquisition planning
-  core/                 case, audit, hashes, immutable models
-  media/                probing and validation helpers
-  plugins/              DVR/NVR format plugins
-    wfs/                 WFS plugin
-  recovery/             reconstruction models and graph logic
-docs/                   architecture and forensic design documents
-tests/                  regression/unit tests
-.github/workflows/       CI
+vidrensic/
+├── acquisition/       evidence source inspection and ddrescue orchestration
+├── core/              cases, models, hashing and audit
+├── media/             probing and technical media validation
+├── plugins/
+│   └── wfs/           WFS parser, scanner and reconstruction engine
+└── recovery/          format-neutral graph/reconstruction primitives
+
+docs/                  architecture, forensic policy and roadmap
+tests/                 unit + synthetic forensic fixtures
+.github/workflows/      CI and regression checks
 ```
 
-## Current milestone
+---
 
-The first milestone establishes the forensic foundation before migrating the existing WFS recovery logic:
+## Evidence states
 
-- case model;
-- hash helpers;
-- append-only hash-chained audit log;
-- Linux block-device read-only inspection;
-- safe ddrescue command planning;
-- plugin API and registry;
-- initial WFS signatures/timestamp codec;
-- media probing abstraction;
-- reconstruction graph data model;
-- automated tests and CI.
+Vidrensic uses explicit states instead of a single “recovered” label:
 
-See `docs/ROADMAP.md` and `docs/ARCHITECTURE.md` for the migration plan.
+| State | Meaning |
+|---|---|
+| `PASS` | Required validation ran and no hard or ambiguous condition remains |
+| `REVIEW` | Candidate exists, but evidence is incomplete, ambiguous, or requires examiner review |
+| `FAIL` | Structural, decoding, timing, or integrity evidence is strongly inconsistent |
+| `UNKNOWN` | Validation required for a decision has not been performed |
 
-## Forensic notice
+A one-hour duration alone is never sufficient for `PASS`.
 
-CVF is under active development. An alpha build must not be represented as validated forensic software without organization-specific validation, documented procedures, known-good test media, and independent verification of results.
+---
+
+## Product roadmap
+
+The next development tracks are:
+
+- evidence-source profiler for unknown DVR/NVR formats;
+- resumable job database and checkpoint engine;
+- WFS global weighted graph solver;
+- frame-level salvage for partially overwritten recordings;
+- keyframe and decoder-error maps;
+- synchronized multi-camera review matrix;
+- sticky preview with frame stepping, ±5s seeking and high-speed review;
+- camera-correlation evidence without assuming stable slot order;
+- native vs review-copy export profiles;
+- signed manifests and case packages;
+- HTML/PDF technical and chain-of-custody reporting;
+- plugin SDK and synthetic corruption corpus.
+
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the engineering sequence.
+
+---
+
+## Ownership & licensing
+
+**Project owner / lead developer:** `@imedkablavi`
+
+Copyright © 2026 imedkablavi. All rights reserved.
+
+This repository is **proprietary software**. Repository access does not grant permission to redistribute, sublicense, sell, publish, or incorporate the source into another product. See [`LICENSE`](LICENSE), [`NOTICE.md`](NOTICE.md), and [`AUTHORS.md`](AUTHORS.md).
+
+---
+
+## Validation notice
+
+Forensic software requires more than functional code. Before production or evidentiary use, Vidrensic should be validated against documented known-good and deliberately corrupted test media, with repeatable expected results and version-controlled validation records.
+
+<div align="center">
+
+**Vidrensic — reconstruct the recording, preserve the evidence.**
+
+</div>
