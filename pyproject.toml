@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vidrensic"
-version = "0.4.0a0"
-description = "Forensic acquisition and multi-format DVR/NVR video reconstruction platform"
+version = "0.5.0a0"
+description = "Forensic acquisition, triage and multi-format DVR/NVR video reconstruction platform"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{name = "imedkablavi"}]
