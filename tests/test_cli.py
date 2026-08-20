@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 from vidrensic.cli import main
 
@@ -43,3 +44,28 @@ def test_acquire_plan_cli(tmp_path: Path, capsys) -> None:
     assert "ddrescue" in output
     assert "4096" in output
     assert "8192" in output
+
+
+def test_profile_source_cli(tmp_path: Path, capsys) -> None:
+    source = tmp_path / "dvr.img"
+    source.write_bytes(b"WFS 0.5" + bytes(1024 * 1024))
+    report = tmp_path / "profile.json"
+    result = main(
+        [
+            "profile",
+            "source",
+            str(source),
+            "--sample-size",
+            "65536",
+            "--sample-count",
+            "3",
+            "--out",
+            str(report),
+        ]
+    )
+    assert result == 0
+    assert report.is_file()
+    data = json.loads(report.read_text(encoding="utf-8"))
+    assert data["sampling_only"] is True
+    assert data["aggregate_signatures"]["wfs_0_5_ascii"] >= 1
+    assert str(report.resolve()) in capsys.readouterr().out
