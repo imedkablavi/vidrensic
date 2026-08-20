@@ -75,7 +75,7 @@ class Case:
         obj._write_metadata()
         # Initialize job DB immediately so schema failures are discovered while
         # creating the case, not during a later long-running operation.
-        obj.jobs
+        _ = obj.jobs
         obj.audit.append(
             "case.created",
             {
