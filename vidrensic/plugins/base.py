@@ -5,6 +5,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+from vidrensic.plugins.capabilities import FormatDescriptor
+
 
 @dataclass(frozen=True)
 class DetectionResult:
@@ -31,6 +33,7 @@ class RecordingBoundary:
 class FormatPlugin(Protocol):
     name: str
     display_name: str
+    descriptor: FormatDescriptor
 
     def detect(self, source: Path) -> DetectionResult: ...
 
