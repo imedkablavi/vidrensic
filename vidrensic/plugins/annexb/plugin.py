@@ -9,6 +9,7 @@ from vidrensic.plugins.base import DetectionResult, RecordingBoundary
 from vidrensic.plugins.capabilities import (
     FailureMode,
     FormatDescriptor,
+    FormatOperation,
     RecoveryStrategy,
     StorageTopology,
     SupportLevel,
@@ -72,6 +73,11 @@ class AnnexBPlugin:
         display_name="Raw Annex-B H.264/H.265 elementary stream",
         support_level=SupportLevel.PARSE,
         topology=StorageTopology.ELEMENTARY_STREAM,
+        operations=(
+            FormatOperation.DETECT,
+            FormatOperation.STREAM_PARSE,
+            FormatOperation.MEDIA_QC,
+        ),
         aliases=("H.264 Annex-B", "H.265 Annex-B", "HEVC Annex-B", "raw .h264/.h265/.hevc"),
         codecs=("H.264/AVC", "H.265/HEVC"),
         strategies=(
@@ -137,5 +143,4 @@ class AnnexBPlugin:
         *,
         data_offset: int = 0,
     ) -> list[RecordingBoundary]:
-        # Raw NAL units do not carry a generic recorder wall-clock timeline.
         return []
