@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cybrex-video-forensics"
+version = "0.1.0a0"
+description = "Linux-first forensic acquisition and DVR/NVR video recovery platform"
+requires-python = ">=3.11"
+authors = [{name = "Cybrex"}]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+cvf = "cvf.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["cvf*"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
