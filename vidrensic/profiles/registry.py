@@ -86,6 +86,10 @@ class ProfileRegistry:
             raise ValueError(f"duplicate profile_id: {profile.profile_id}")
         if not profile.family_id.strip():
             raise ValueError("family_id cannot be empty")
+        if not profile.variant.strip():
+            raise ValueError("variant cannot be empty")
+        if not isinstance(profile.parameters, dict):
+            raise ValueError("profile parameters must be an object")
         self._profiles[key] = profile
 
     def get(self, profile_id: str) -> VariantProfile:
@@ -117,6 +121,8 @@ class ProfileRegistry:
 
     def load_pack(self, path: Path) -> tuple[VariantProfile, ...]:
         data = json.loads(path.expanduser().read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("profile pack must be a JSON object")
         if data.get("schema_version") != PROFILE_SCHEMA_VERSION:
             raise ValueError(f"unsupported profile-pack schema: {data.get('schema_version')!r}")
         raw_profiles = data.get("profiles")
@@ -126,6 +132,13 @@ class ProfileRegistry:
         for item in raw_profiles:
             if not isinstance(item, dict):
                 raise ValueError("each profile must be an object")
+            required = ("profile_id", "family_id")
+            missing = [name for name in required if name not in item]
+            if missing:
+                raise ValueError(f"profile missing required fields: {', '.join(missing)}")
+            parameters = item.get("parameters", {})
+            if not isinstance(parameters, dict):
+                raise ValueError("profile parameters must be an object")
             profile = VariantProfile(
                 profile_id=str(item["profile_id"]),
                 family_id=str(item["family_id"]),
@@ -133,7 +146,7 @@ class ProfileRegistry:
                 vendor_patterns=tuple(str(x) for x in item.get("vendor_patterns", [])),
                 model_patterns=tuple(str(x) for x in item.get("model_patterns", [])),
                 firmware_patterns=tuple(str(x) for x in item.get("firmware_patterns", [])),
-                parameters=dict(item.get("parameters", {})),
+                parameters=dict(parameters),
                 notes=tuple(str(x) for x in item.get("notes", [])),
                 validation_state=str(item.get("validation_state", "experimental")),
             )
@@ -164,7 +177,6 @@ def builtin_profiles() -> tuple[VariantProfile, ...]:
             profile_id="dhav-classic-24-8",
             family_id="dhav",
             variant="Classic DHAV 24-byte header / 8-byte footer",
-            vendor_patterns=("*dahua*", "*oem*"),
             parameters={
                 "header_magic": "DHAV",
                 "header_size": 24,
@@ -175,9 +187,36 @@ def builtin_profiles() -> tuple[VariantProfile, ...]:
                 "timestamp_offset": 16,
             },
             notes=(
-                "Compatible with the widely documented DHAV frame layer; vendor/firmware extensions can vary.",
+                "Structural profile is vendor-neutral; Dahua-family and OEM systems are common sources, but the bytes decide compatibility.",
+                "Firmware extensions can vary and must be profiled rather than forced into this layout.",
             ),
             validation_state="implementation-tested",
+        ),
+        VariantProfile(
+            profile_id="hikvision-master-256-v1",
+            family_id="hikvision",
+            variant="Hikvision 256-byte Master Sector candidate layout",
+            vendor_patterns=("*hikvision*", "*hik*"),
+            parameters={
+                "master_signature_ascii": "HIKVISION@HANGZHOU",
+                "master_size": 256,
+                "hdd_capacity_offset": 56,
+                "system_logs_offset_offset": 80,
+                "system_logs_size_offset": 88,
+                "video_data_offset_offset": 104,
+                "data_block_size_offset": 120,
+                "total_data_blocks_offset": 128,
+                "hikbtree1_offset_offset": 136,
+                "hikbtree1_size_offset": 144,
+                "hikbtree2_offset_offset": 152,
+                "hikbtree2_size_offset": 160,
+                "initialization_time_offset": 224,
+            },
+            notes=(
+                "Used only for Master Sector profiling in 0.4-alpha; HIKBTREE/data-block recovery is not yet claimed.",
+                "Master Sector location is searched dynamically rather than assumed to be at one fixed disk offset.",
+            ),
+            validation_state="profile-only",
         ),
         VariantProfile(
             profile_id="annexb-generic",
