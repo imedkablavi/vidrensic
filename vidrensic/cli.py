@@ -11,12 +11,15 @@ import sys
 from vidrensic import __product__, __version__
 from vidrensic.acquisition.ddrescue import AcquisitionPlan, execute_plan
 from vidrensic.acquisition.linux import inspect_source, require_safe_source
+from vidrensic.acquisition.smart import capture_smart
 from vidrensic.core.case import Case
 from vidrensic.core.jobs import JobStatus
 from vidrensic.media.qc import fast_three_point_check, full_decode_check
 from vidrensic.plugins.registry import PluginRegistry
 from vidrensic.plugins.wfs import WFSPlugin
+from vidrensic.plugins.wfs.layout import infer_wfs_fragment_alignment
 from vidrensic.plugins.wfs.recovery import recover_segment
+from vidrensic.profiler.source import profile_source
 
 
 def _int_auto(value: str) -> int:
@@ -91,6 +94,31 @@ def build_parser() -> argparse.ArgumentParser:
     inspect = source_sub.add_parser("inspect")
     inspect.add_argument("path", type=Path)
     inspect.add_argument("--json", action="store_true")
+    smart = source_sub.add_parser("smart", help="capture SMART/device identity as evidence metadata")
+    smart.add_argument("path", type=Path)
+    smart.add_argument("--out", type=Path)
+    smart.add_argument("--case", type=Path)
+
+    profile_cmd = sub.add_parser("profile", help="build bounded evidence/source hypotheses")
+    profile_sub = profile_cmd.add_subparsers(dest="profile_command")
+    profile_generic = profile_sub.add_parser("source", help="sample an unknown DVR/NVR source")
+    profile_generic.add_argument("source", type=Path)
+    profile_generic.add_argument("--sample-size", type=_int_auto, default=4 * 1024 * 1024)
+    profile_generic.add_argument("--sample-count", type=int, default=5)
+    profile_generic.add_argument("--out", type=Path, required=True)
+    profile_generic.add_argument("--case", type=Path)
+    profile_wfs = profile_sub.add_parser(
+        "wfs-layout",
+        help="rank WFS fragment-alignment hypotheses in a bounded range",
+    )
+    profile_wfs.add_argument("source", type=Path)
+    profile_wfs.add_argument("--range-start", type=_int_auto, default=0)
+    profile_wfs.add_argument("--range-size", type=_int_auto, default=64 * 1024 * 1024)
+    profile_wfs.add_argument("--fragment-size", type=_int_auto, default=2 * 1024 * 1024)
+    profile_wfs.add_argument("--sector-size", type=_int_auto, default=512)
+    profile_wfs.add_argument("--top", type=int, default=8)
+    profile_wfs.add_argument("--out", type=Path, required=True)
+    profile_wfs.add_argument("--case", type=Path)
 
     acquire = sub.add_parser("acquire", help="plan or execute ddrescue acquisition")
     acquire_sub = acquire.add_subparsers(dest="acquire_command")
@@ -195,6 +223,13 @@ def _print_qc(report) -> int:
     return 1 if report.decision.status.value == "FAIL" else 0
 
 
+def _case_job_start(case: Case | None, kind: str, details: dict):
+    if case is None:
+        return None
+    job = case.jobs.create(kind, details)
+    return case.jobs.start(job.job_id)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -231,6 +266,85 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{key}={value}")
         return 0 if info.exists else 1
 
+    if args.command == "source" and args.source_command == "smart":
+        case = Case.load(args.case) if args.case else None
+        details = {"source": str(args.path), "output": str(args.out) if args.out else None}
+        job = _case_job_start(case, "source.smart", details)
+        try:
+            snapshot = capture_smart(args.path)
+            if args.out:
+                snapshot.write_json(args.out)
+        except Exception as exc:
+            if case and job:
+                case.jobs.fail(job.job_id, f"{type(exc).__name__}: {exc}")
+                case.audit.append(
+                    "source.smart.failed",
+                    {**details, "job_id": job.job_id, "error": f"{type(exc).__name__}: {exc}"},
+                    actor=case.examiner,
+                )
+            raise
+        if case and job:
+            case.jobs.checkpoint(
+                job.job_id,
+                {"captured": snapshot.captured, "output": details["output"]},
+            )
+            case.jobs.complete(job.job_id)
+            case.audit.append(
+                "source.smart.finished",
+                {
+                    **details,
+                    "job_id": job.job_id,
+                    "captured": snapshot.captured,
+                    "smart_passed": snapshot.smart_passed,
+                    "model": snapshot.model,
+                    "serial": snapshot.serial,
+                },
+                actor=case.examiner,
+            )
+        print(json.dumps(snapshot.to_dict(), indent=2, sort_keys=True))
+        return 0 if snapshot.captured else 2
+
+    if args.command == "profile" and args.profile_command in ("source", "wfs-layout"):
+        case = Case.load(args.case) if args.case else None
+        details = {"source": str(args.source), "mode": args.profile_command, "output": str(args.out)}
+        job = _case_job_start(case, f"profile.{args.profile_command}", details)
+        try:
+            if args.profile_command == "source":
+                report = profile_source(
+                    args.source,
+                    sample_size=args.sample_size,
+                    sample_count=args.sample_count,
+                )
+            else:
+                report = infer_wfs_fragment_alignment(
+                    args.source,
+                    range_start=args.range_start,
+                    range_size=args.range_size,
+                    fragment_size=args.fragment_size,
+                    sector_size=args.sector_size,
+                    top=args.top,
+                )
+            report.write_json(args.out)
+        except Exception as exc:
+            if case and job:
+                case.jobs.fail(job.job_id, f"{type(exc).__name__}: {exc}")
+                case.audit.append(
+                    "profile.failed",
+                    {**details, "job_id": job.job_id, "error": f"{type(exc).__name__}: {exc}"},
+                    actor=case.examiner,
+                )
+            raise
+        if case and job:
+            case.jobs.checkpoint(job.job_id, {"output": str(args.out)})
+            case.jobs.complete(job.job_id)
+            case.audit.append(
+                "profile.finished",
+                {**details, "job_id": job.job_id},
+                actor=case.examiner,
+            )
+        print(args.out.resolve())
+        return 0
+
     if args.command == "acquire" and args.acquire_command == "plan":
         plan = _plan_from_args(args)
         for command in (plan.first_pass_command(), plan.retry_command()):
@@ -251,9 +365,8 @@ def main(argv: list[str] | None = None) -> int:
             "direct": plan.direct,
             "write_enabled_override": args.allow_write_enabled_source,
         }
-        job = case.jobs.create("acquisition.ddrescue", details) if case else None
-        if job:
-            job = case.jobs.start(job.job_id)
+        job = _case_job_start(case, "acquisition.ddrescue", details)
+        if case and job:
             details["job_id"] = job.job_id
             case.audit.append("acquisition.started", details, actor=case.examiner)
         try:
@@ -342,9 +455,8 @@ def main(argv: list[str] | None = None) -> int:
             "near": args.near,
             "far": args.far,
         }
-        job = case.jobs.create("wfs.recover", details) if case else None
-        if job:
-            job = case.jobs.start(job.job_id)
+        job = _case_job_start(case, "wfs.recover", details)
+        if case and job:
             details["job_id"] = job.job_id
             case.audit.append("wfs.recovery.started", details, actor=case.examiner)
         try:
@@ -399,9 +511,8 @@ def main(argv: list[str] | None = None) -> int:
             "mode": args.qc_command,
             "expected_duration": args.expected_duration,
         }
-        job = case.jobs.create(f"media.qc.{args.qc_command}", details) if case else None
-        if job:
-            job = case.jobs.start(job.job_id)
+        job = _case_job_start(case, f"media.qc.{args.qc_command}", details)
+        if case and job:
             details["job_id"] = job.job_id
             case.audit.append("media.qc.started", details, actor=case.examiner)
         try:
