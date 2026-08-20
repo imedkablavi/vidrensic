@@ -60,10 +60,24 @@ class AcquisitionPlan:
     def required_output_bytes(self) -> int | None:
         return self.size
 
+    @property
+    def existing_output_bytes(self) -> int:
+        try:
+            return self.output.stat().st_size
+        except FileNotFoundError:
+            return 0
+
+    @property
+    def additional_required_bytes(self) -> int | None:
+        required = self.required_output_bytes
+        if required is None:
+            return None
+        return max(0, required - self.existing_output_bytes)
+
 
 def check_capacity(plan: AcquisitionPlan, *, reserve_bytes: int = 2 * 1024**3) -> None:
     plan.validate()
-    required = plan.required_output_bytes
+    required = plan.additional_required_bytes
     if required is None:
         return
     parent = plan.output.parent.resolve()
@@ -71,7 +85,8 @@ def check_capacity(plan: AcquisitionPlan, *, reserve_bytes: int = 2 * 1024**3) -
     free = shutil.disk_usage(parent).free
     if free < required + reserve_bytes:
         raise OSError(
-            f"insufficient free space: need at least {required + reserve_bytes} bytes, have {free}"
+            f"insufficient free space: need about {required + reserve_bytes} additional bytes, "
+            f"have {free}"
         )
 
 
@@ -84,7 +99,8 @@ def execute_plan(
     """Execute ddrescue without shell interpolation.
 
     Existing map files are intentionally reused so interrupted acquisitions can
-    resume. The evidence source is safety-checked immediately before execution.
+    resume. Capacity preflight accounts for bytes already present in a partial
+    output. The evidence source is safety-checked immediately before execution.
     """
 
     plan.validate()
