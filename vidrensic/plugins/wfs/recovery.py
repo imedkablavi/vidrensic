@@ -31,7 +31,10 @@ class WFSRecoveredCandidate:
 
 def _candidate_existing_paths(output_dir: Path, label: str, candidate_id: str) -> tuple[Path, ...]:
     stem = f"{label}_{candidate_id}"
-    return tuple(output_dir / f"{stem}{suffix}" for suffix in (".video.es", ".es", ".h264", ".h265", ".hevc"))
+    return tuple(
+        output_dir / f"{stem}{suffix}"
+        for suffix in (".video.es", ".video.es.partial", ".es", ".h264", ".h265", ".hevc")
+    )
 
 
 def recover_segment(
@@ -83,11 +86,18 @@ def recover_segment(
         candidates: list[WFSRecoveredCandidate] = []
         for index, chain in enumerate(chains, start=1):
             candidate_id = f"candidate_{index:02d}"
-            existing = [path for path in _candidate_existing_paths(output_dir, label, candidate_id) if path.exists()]
+            existing = [
+                path
+                for path in _candidate_existing_paths(output_dir, label, candidate_id)
+                if path.exists()
+            ]
             if existing:
                 raise FileExistsError(f"candidate output already exists: {existing[0]}")
 
             temporary_native = output_dir / f"{label}_{candidate_id}.video.es"
+            # Register before extraction because extract_video opens/creates the
+            # file before it can encounter a structural error.
+            created_outputs.append(temporary_native)
             extracted = extract_video(
                 fd,
                 chain.fragments,
@@ -95,7 +105,6 @@ def recover_segment(
                 data_offset=data_offset,
                 fragment_size=fragment_size,
             )
-            created_outputs.append(temporary_native)
 
             if extracted.codec_hint == "h264" and extracted.codec_confidence >= 0.80:
                 native = output_dir / f"{label}_{candidate_id}.h264"
@@ -135,7 +144,6 @@ def recover_segment(
             elif reasons:
                 status = "REVIEW"
             else:
-                # Native extraction without complete decoder/timing QC can never be PASS.
                 status = "UNKNOWN"
 
             candidates.append(
@@ -158,8 +166,6 @@ def recover_segment(
                 )
             )
     except Exception:
-        # Partial artifacts are never silently presented as a completed recovery.
-        # Keep bytes for forensic troubleshooting but mark them visibly.
         for path in created_outputs:
             if path.exists() and not path.name.endswith(".partial"):
                 partial = path.with_name(path.name + ".partial")
