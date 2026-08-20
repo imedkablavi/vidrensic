@@ -3,21 +3,35 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cybrex-video-forensics"
-version = "0.1.0a0"
-description = "Linux-first forensic acquisition and DVR/NVR video recovery platform"
+name = "vidrensic"
+version = "0.2.0a0"
+description = "Forensic acquisition and DVR/NVR video reconstruction platform"
+readme = "README.md"
 requires-python = ">=3.11"
-authors = [{name = "Cybrex"}]
+authors = [{name = "imedkablavi"}]
+license = {text = "Proprietary"}
+keywords = ["forensics", "dvr", "nvr", "cctv", "video-recovery", "wfs"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Information Technology",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+]
 dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
-cvf = "cvf.cli:main"
+vidrensic = "vidrensic.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["cvf*"]
+include = ["vidrensic*"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
@@ -25,3 +39,8 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "B"]
+ignore = ["E501"]

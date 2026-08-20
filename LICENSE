@@ -1,0 +1,96 @@
+VIDRENSIC PROPRIETARY SOFTWARE LICENSE
+Version 1.0 — 2026
+
+Copyright (c) 2026 imedkablavi. All rights reserved.
+
+1. OWNERSHIP
+
+The software, source code, documentation, designs, algorithms, recovery profiles,
+test fixtures, reports, user-interface assets, and related materials in this
+repository (collectively, the "Software") are proprietary works owned by the
+copyright holder identified above, except for third-party components that are
+separately identified and licensed by their respective owners.
+
+2. NO PUBLIC LICENSE GRANT
+
+Access to this repository, possession of a copy of the Software, or receipt of
+compiled binaries does not by itself grant any right to use, copy, modify,
+distribute, publish, sublicense, sell, rent, lease, host, or create derivative
+products from the Software.
+
+Any right to use the Software must be granted explicitly by the copyright holder
+in a separate written authorization, commercial license, employment agreement,
+contract, or other legally effective instrument.
+
+3. AUTHORIZED INTERNAL USE
+
+Where the copyright holder has explicitly authorized a person or organization to
+use the Software, that authorization is limited to the scope, users, systems,
+term, and purpose stated in the applicable authorization. No rights are implied
+beyond that scope.
+
+4. RESTRICTIONS
+
+Except where applicable law expressly overrides a restriction, an authorized
+user may not, without prior written permission from the copyright holder:
+
+- redistribute or publicly publish source code or binaries;
+- sublicense, resell, rent, lease, or offer the Software as a hosted service;
+- remove or alter copyright, ownership, attribution, or license notices;
+- represent the Software as open-source or public-domain software;
+- use the Software or substantial portions of it to create a competing product;
+- disclose proprietary recovery profiles, format research, or internal test
+  corpora to unauthorized third parties.
+
+5. FORENSIC USE
+
+The Software may produce derived evidence, reconstruction hypotheses, recovered
+media, hashes, logs, and reports. The operator remains responsible for validating
+workflows, preserving source evidence, documenting procedures, and determining
+whether a particular Software version is suitable for evidentiary, regulatory,
+or production use.
+
+No alpha, beta, development, or unvalidated release may be represented as
+independently certified forensic software solely because it is provided by the
+copyright holder.
+
+6. THIRD-PARTY SOFTWARE
+
+Vidrensic can invoke or interoperate with third-party software including GNU
+ddrescue and FFmpeg/ffprobe. Those programs are not relicensed by this document.
+Their own licenses and distribution requirements continue to apply.
+
+7. CONFIDENTIALITY
+
+Private repository contents, unreleased recovery profiles, sample evidence,
+customer cases, proprietary format research, and internal validation data should
+be treated as confidential unless the copyright holder explicitly authorizes
+disclosure.
+
+8. TERMINATION
+
+Any authorization to use the Software terminates automatically when its stated
+term expires or when a material license restriction is breached, subject to any
+contrary terms in a separate written agreement. Upon termination, the user must
+cease unauthorized use and distribution.
+
+9. DISCLAIMER
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED
+WITHOUT ANY WARRANTY, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, ACCURACY, NON-INFRINGEMENT,
+OR FITNESS FOR EVIDENTIARY USE.
+
+10. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COPYRIGHT HOLDER WILL NOT
+BE LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR EXEMPLARY DAMAGES,
+OR FOR LOSS OF DATA, EVIDENCE, PROFITS, OR BUSINESS ARISING FROM USE OF THE
+SOFTWARE, EXCEPT WHERE LIABILITY CANNOT LAWFULLY BE EXCLUDED.
+
+11. RESERVATION OF RIGHTS
+
+All rights not expressly granted are reserved by the copyright holder.
+
+For licensing or written authorization, contact the repository owner through the
+project's GitHub account unless another official contact method is published.

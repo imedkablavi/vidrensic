@@ -2,22 +2,44 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install -U pip
-      - run: pip install -e .[dev]
-      - run: ruff check cvf tests
-      - run: pytest
-      - run: cvf --version
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+
+      - name: Ruff
+        run: ruff check vidrensic tests
+
+      - name: Unit and synthetic tests
+        run: pytest
+
+      - name: CLI smoke test
+        run: |
+          vidrensic --version
+          vidrensic plugins list
+
+      - name: Package import smoke test
+        run: python -c "import vidrensic; print(vidrensic.__version__)"
