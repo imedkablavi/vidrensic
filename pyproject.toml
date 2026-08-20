@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vidrensic"
-version = "0.2.0a0"
+version = "0.3.0a0"
 description = "Forensic acquisition and DVR/NVR video reconstruction platform"
 readme = "README.md"
 requires-python = ">=3.11"
