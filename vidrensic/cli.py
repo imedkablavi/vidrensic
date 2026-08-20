@@ -16,7 +16,9 @@ from vidrensic.core.case import Case
 from vidrensic.core.jobs import JobStatus
 from vidrensic.media.qc import fast_three_point_check, full_decode_check
 from vidrensic.plugins.annexb import AnnexBPlugin
+from vidrensic.plugins.capabilities import FormatOperation
 from vidrensic.plugins.dhav import DHAVPlugin, demux_dhav_range
+from vidrensic.plugins.hikvision import HikvisionPlugin
 from vidrensic.plugins.mpegps import MPEGPSPlugin
 from vidrensic.plugins.registry import PluginRegistry
 from vidrensic.plugins.wfs import WFSPlugin
@@ -66,6 +68,7 @@ def default_registry() -> PluginRegistry:
         [
             WFSPlugin(),
             DHAVPlugin(),
+            HikvisionPlugin(),
             AnnexBPlugin(),
             MPEGPSPlugin(),
         ]
@@ -154,7 +157,6 @@ def build_parser() -> argparse.ArgumentParser:
             action.add_argument("--case", type=Path)
             action.add_argument("--allow-write-enabled-source", action="store_true")
 
-    # `plugins` is retained as a compatibility alias for old scripts.
     plugins = sub.add_parser("plugins", help="compatibility alias for format plugins")
     plugins_sub = plugins.add_subparsers(dest="plugins_command")
     plugins_sub.add_parser("list")
@@ -346,7 +348,10 @@ def main(argv: list[str] | None = None) -> int:
                 )
             raise
         if case and job:
-            case.jobs.checkpoint(job.job_id, {"captured": snapshot.captured, "output": details["output"]})
+            case.jobs.checkpoint(
+                job.job_id,
+                {"captured": snapshot.captured, "output": details["output"]},
+            )
             case.jobs.complete(job.job_id)
             case.audit.append(
                 "source.smart.finished",
@@ -398,7 +403,11 @@ def main(argv: list[str] | None = None) -> int:
         if case and job:
             case.jobs.checkpoint(job.job_id, {"output": str(args.out)})
             case.jobs.complete(job.job_id)
-            case.audit.append("profile.finished", {**details, "job_id": job.job_id}, actor=case.examiner)
+            case.audit.append(
+                "profile.finished",
+                {**details, "job_id": job.job_id},
+                actor=case.examiner,
+            )
         print(args.out.resolve())
         return 0
 
@@ -427,7 +436,10 @@ def main(argv: list[str] | None = None) -> int:
             details["job_id"] = job.job_id
             case.audit.append("acquisition.started", details, actor=case.examiner)
         try:
-            results = execute_plan(plan, allow_write_enabled_source=args.allow_write_enabled_source)
+            results = execute_plan(
+                plan,
+                allow_write_enabled_source=args.allow_write_enabled_source,
+            )
         except Exception as exc:
             if case and job:
                 case.jobs.fail(job.job_id, f"{type(exc).__name__}: {exc}")
@@ -465,9 +477,10 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(rows, indent=2, sort_keys=True))
         else:
             for row in rows:
+                operations = ",".join(row["operations"]) or "none"
                 print(
                     f"{row['family_id']:<10} {row['support_level']:<12} "
-                    f"{row['topology']:<28} {row['display_name']}"
+                    f"{row['topology']:<28} ops={operations}"
                 )
         return 0
 
@@ -517,10 +530,7 @@ def main(argv: list[str] | None = None) -> int:
             firmware=args.firmware,
             family_id=args.family,
         )
-        payload = [
-            {"score": score, **profile.to_dict()}
-            for score, profile in rows
-        ]
+        payload = [{"score": score, **profile.to_dict()} for score, profile in rows]
         if args.json:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
@@ -549,7 +559,24 @@ def main(argv: list[str] | None = None) -> int:
             plugin = registry.get(report.best.plugin)
         else:
             plugin = registry.get(args.plugin)
-        boundaries = plugin.scan_date(args.source, args.date, data_offset=args.data_offset)
+
+        if not plugin.descriptor.supports_operation(FormatOperation.DATE_SCAN):
+            print(
+                f"format family '{plugin.name}' was selected but DATE_SCAN is not implemented; "
+                f"support level={plugin.descriptor.support_level.name}",
+                file=sys.stderr,
+            )
+            print(
+                "use 'vidrensic formats list' to inspect implemented operations for each family",
+                file=sys.stderr,
+            )
+            return 4
+
+        boundaries = plugin.scan_date(
+            args.source,
+            args.date,
+            data_offset=args.data_offset,
+        )
         if args.json:
             payload = [
                 {
@@ -606,7 +633,10 @@ def main(argv: list[str] | None = None) -> int:
                 )
             raise
         if case and job:
-            case.jobs.checkpoint(job.job_id, {"manifest": str(manifest), "candidate_count": len(candidates)})
+            case.jobs.checkpoint(
+                job.job_id,
+                {"manifest": str(manifest), "candidate_count": len(candidates)},
+            )
             case.jobs.complete(job.job_id)
             case.audit.append(
                 "wfs.recovery.finished",
@@ -682,7 +712,10 @@ def main(argv: list[str] | None = None) -> int:
             case.audit.append("media.qc.started", details, actor=case.examiner)
         try:
             if args.qc_command == "fast":
-                report = fast_three_point_check(args.path, expected_duration=args.expected_duration)
+                report = fast_three_point_check(
+                    args.path,
+                    expected_duration=args.expected_duration,
+                )
             else:
                 report = full_decode_check(
                     args.path,
