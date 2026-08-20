@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from pathlib import Path
+import json
 import os
 import struct
 
@@ -13,6 +14,7 @@ from vidrensic.plugins.wfs.codec import (
     parse_fragment_tail,
 )
 from vidrensic.plugins.wfs.reconstruct import extract_hevc
+from vidrensic.plugins.wfs.recovery import recover_segment
 from vidrensic.plugins.wfs.scanner import scan_recording_starts
 
 
@@ -79,3 +81,26 @@ def test_extract_native_payload(tmp_path: Path) -> None:
     assert out.read_bytes() == payload
     assert result.hevc_bytes == len(payload)
     assert result.video_packets == 1
+
+
+def test_high_level_recovery_writes_manifest_without_false_pass(tmp_path: Path) -> None:
+    payload = b"\x00\x00\x00\x01\x40" + b"candidate" * 16
+    packet = _fc_packet(payload)
+    raw = tmp_path / "source.raw"
+    with raw.open("wb") as fh:
+        fh.write(packet)
+        fh.write(bytes(FRAGMENT_SIZE - len(packet)))
+
+    candidates, manifest = recover_segment(
+        raw,
+        [0],
+        1,
+        tmp_path / "recovered",
+        label="09-00",
+    )
+    assert len(candidates) == 1
+    assert candidates[0].status == "UNKNOWN"
+    assert candidates[0].native_output.read_bytes() == payload
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    assert data["plugin"] == "wfs"
+    assert data["candidates"][0]["status"] == "UNKNOWN"
