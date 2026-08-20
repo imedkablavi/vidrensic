@@ -7,6 +7,7 @@ from vidrensic.plugins.base import DetectionResult, RecordingBoundary
 from vidrensic.plugins.capabilities import (
     FailureMode,
     FormatDescriptor,
+    FormatOperation,
     RecoveryStrategy,
     StorageTopology,
     SupportLevel,
@@ -22,6 +23,7 @@ class HikvisionPlugin:
         display_name="Hikvision proprietary DVR storage",
         support_level=SupportLevel.PROFILE,
         topology=StorageTopology.PROPRIETARY_FILESYSTEM,
+        operations=(FormatOperation.DETECT, FormatOperation.PROFILE),
         aliases=("HIKVISION@HANGZHOU", "HIKBTREE", "HIK proprietary DVR filesystem"),
         vendor_hints=("Hikvision-family recorders and firmware variants",),
         codecs=("raw H.264 commonly", "firmware-dependent video variants"),
@@ -31,9 +33,7 @@ class HikvisionPlugin:
             RecoveryStrategy.TIMESTAMP_GUIDED,
             RecoveryStrategy.SIGNATURE_CARVE,
         ),
-        failure_modes=(
-            FailureMode.UNKNOWN_VENDOR_VARIANT,
-        ),
+        failure_modes=(FailureMode.UNKNOWN_VENDOR_VARIANT,),
         notes=(
             "0.4-alpha implements dynamic Master Sector profiling, not production HIKBTREE recovery.",
             "HIKBTREE entry/page layouts differ across firmware and require variant-specific validation.",
@@ -77,7 +77,4 @@ class HikvisionPlugin:
         *,
         data_offset: int = 0,
     ) -> list[RecordingBoundary]:
-        # Deliberately unavailable until HIKBTREE/data-block variants are
-        # validated. Returning fabricated timeline entries would be worse than
-        # reporting partial support.
         return []
