@@ -8,6 +8,7 @@ from vidrensic.plugins.base import DetectionResult, RecordingBoundary
 from vidrensic.plugins.capabilities import (
     FailureMode,
     FormatDescriptor,
+    FormatOperation,
     RecoveryStrategy,
     StorageTopology,
     SupportLevel,
@@ -23,6 +24,15 @@ class DHAVPlugin:
         display_name="DHAV surveillance frame stream",
         support_level=SupportLevel.RECONSTRUCT,
         topology=StorageTopology.RAW_INTERLEAVED,
+        operations=(
+            FormatOperation.DETECT,
+            FormatOperation.PROFILE,
+            FormatOperation.DATE_SCAN,
+            FormatOperation.STREAM_PARSE,
+            FormatOperation.NATIVE_RECOVER,
+            FormatOperation.CHANNEL_DEMUX,
+            FormatOperation.MEDIA_QC,
+        ),
         aliases=("DHAV", "DHFS/DHAV frame layer", ".dav DHAV container"),
         vendor_hints=("Dahua-family devices and OEM variants",),
         codecs=("H.264", "H.265/HEVC", "audio/metadata frame variants"),
@@ -55,8 +65,10 @@ class DHAVPlugin:
         if not source.exists():
             return DetectionResult(self.name, 0.0, ("source does not exist",))
 
-        # Bound detection cost. Deep/full carving is an explicit recovery step.
-        sample_stop = min(source.stat().st_size if source.is_file() else 256 * 1024 * 1024, 256 * 1024 * 1024)
+        sample_stop = min(
+            source.stat().st_size if source.is_file() else 256 * 1024 * 1024,
+            256 * 1024 * 1024,
+        )
         try:
             frames = scan_dhav_frames(
                 source,
