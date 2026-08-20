@@ -9,6 +9,7 @@ from vidrensic.plugins.base import DetectionResult, RecordingBoundary
 from vidrensic.plugins.capabilities import (
     FailureMode,
     FormatDescriptor,
+    FormatOperation,
     RecoveryStrategy,
     StorageTopology,
     SupportLevel,
@@ -52,6 +53,11 @@ class MPEGPSPlugin:
         display_name="MPEG Program Stream / PES surveillance container",
         support_level=SupportLevel.PARSE,
         topology=StorageTopology.CONTAINER_ONLY,
+        operations=(
+            FormatOperation.DETECT,
+            FormatOperation.STREAM_PARSE,
+            FormatOperation.MEDIA_QC,
+        ),
         aliases=("MPEG-PS", "PS", "PES", "program stream"),
         codecs=("H.264 commonly", "MPEG video variants", "vendor-specific PES payloads"),
         timestamp_kinds=("PTS/DTS when present", "vendor metadata may carry wall-clock time"),
