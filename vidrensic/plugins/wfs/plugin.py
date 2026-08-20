@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+from vidrensic.acquisition.linux import require_safe_source
 from vidrensic.plugins.base import DetectionResult, RecordingBoundary
 from vidrensic.plugins.capabilities import (
     FailureMode,
@@ -65,11 +66,13 @@ class WFSPlugin:
     )
 
     def detect(self, source: Path) -> DetectionResult:
-        source = source.expanduser().resolve()
-        if not source.exists():
+        try:
+            info = require_safe_source(source)
+        except FileNotFoundError:
             return DetectionResult(self.name, 0.0, ("source does not exist",))
+        source = info.path
 
-        sample_limit = 128 * 1024 * 1024
+        sample_limit = min(info.size_bytes, 128 * 1024 * 1024)
         chunk_size = 4 * 1024 * 1024
         valid = 0
         plausible_timestamps = 0
@@ -92,8 +95,8 @@ class WFSPlugin:
                     pos = data.find(SYNC + b"\xfd", pos)
                     if pos < 0:
                         break
-                    info = packet_info(data, pos)
-                    if info is not None:
+                    packet = packet_info(data, pos)
+                    if packet is not None:
                         valid += 1
                         timestamp = fd_timestamp(data[pos : pos + 16])
                         if timestamp is not None:
