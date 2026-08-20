@@ -238,7 +238,7 @@ def annexb_codec_hint(data: bytes) -> str | None:
 
     if not data:
         return None
-    for marker in (b"\x00\x00\x00\x01", b"\x00\x01"):
+    for marker in (b"\x00\x00\x00\x01", b"\x00\x00\x01"):
         pos = 0
         while True:
             pos = data.find(marker, pos)
