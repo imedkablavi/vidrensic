@@ -22,6 +22,19 @@ class SupportLevel(IntEnum):
     EXPORT = 60
 
 
+class FormatOperation(str, Enum):
+    """Concrete operations currently implemented for a format family."""
+
+    DETECT = "detect"
+    PROFILE = "profile"
+    DATE_SCAN = "date-scan"
+    STREAM_PARSE = "stream-parse"
+    NATIVE_RECOVER = "native-recover"
+    CHANNEL_DEMUX = "channel-demux"
+    MEDIA_QC = "media-qc"
+    FORENSIC_EXPORT = "forensic-export"
+
+
 class StorageTopology(str, Enum):
     UNKNOWN = "unknown"
     KNOWN_FILESYSTEM = "known-filesystem"
@@ -71,14 +84,16 @@ class FailureMode(str, Enum):
 class FormatDescriptor:
     """Product-level description of a storage/container family.
 
-    `support_level` is deliberately separate from vendor/model marketing. A
-    profile can identify a family without claiming reconstruction support.
+    `support_level` summarizes maturity. `operations` is the authoritative set
+    of concrete commands the family may currently perform. This distinction
+    prevents a PROFILE-only family from silently accepting a recovery command.
     """
 
     family_id: str
     display_name: str
     support_level: SupportLevel
     topology: StorageTopology
+    operations: tuple[FormatOperation, ...] = ()
     aliases: tuple[str, ...] = ()
     vendor_hints: tuple[str, ...] = ()
     codecs: tuple[str, ...] = ()
@@ -91,6 +106,9 @@ class FormatDescriptor:
     def supports(self, level: SupportLevel) -> bool:
         return self.support_level >= level
 
+    def supports_operation(self, operation: FormatOperation) -> bool:
+        return operation in self.operations
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "family_id": self.family_id,
@@ -98,6 +116,7 @@ class FormatDescriptor:
             "support_level": self.support_level.name,
             "support_level_value": int(self.support_level),
             "topology": self.topology.value,
+            "operations": [item.value for item in self.operations],
             "aliases": list(self.aliases),
             "vendor_hints": list(self.vendor_hints),
             "codecs": list(self.codecs),
