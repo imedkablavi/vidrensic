@@ -15,11 +15,18 @@ from vidrensic.acquisition.smart import capture_smart
 from vidrensic.core.case import Case
 from vidrensic.core.jobs import JobStatus
 from vidrensic.media.qc import fast_three_point_check, full_decode_check
+from vidrensic.plugins.annexb import AnnexBPlugin
+from vidrensic.plugins.capabilities import FormatOperation
+from vidrensic.plugins.dhav import DHAVPlugin, demux_dhav_range
+from vidrensic.plugins.hikvision import HikvisionPlugin
+from vidrensic.plugins.mpegps import MPEGPSPlugin
 from vidrensic.plugins.registry import PluginRegistry
 from vidrensic.plugins.wfs import WFSPlugin
 from vidrensic.plugins.wfs.layout import infer_wfs_fragment_alignment
 from vidrensic.plugins.wfs.recovery import recover_segment
 from vidrensic.profiler.source import profile_source
+from vidrensic.profiler.storage import profile_storage
+from vidrensic.profiles import default_profile_registry
 
 
 def _int_auto(value: str) -> int:
@@ -57,7 +64,15 @@ def _job_status(value: str) -> JobStatus:
 
 
 def default_registry() -> PluginRegistry:
-    return PluginRegistry([WFSPlugin()])
+    return PluginRegistry(
+        [
+            WFSPlugin(),
+            DHAVPlugin(),
+            HikvisionPlugin(),
+            AnnexBPlugin(),
+            MPEGPSPlugin(),
+        ]
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -107,6 +122,13 @@ def build_parser() -> argparse.ArgumentParser:
     profile_generic.add_argument("--sample-count", type=int, default=5)
     profile_generic.add_argument("--out", type=Path, required=True)
     profile_generic.add_argument("--case", type=Path)
+    profile_storage_cmd = profile_sub.add_parser(
+        "storage",
+        help="map MBR/GPT and known filesystems without mounting them",
+    )
+    profile_storage_cmd.add_argument("source", type=Path)
+    profile_storage_cmd.add_argument("--out", type=Path, required=True)
+    profile_storage_cmd.add_argument("--case", type=Path)
     profile_wfs = profile_sub.add_parser(
         "wfs-layout",
         help="rank WFS fragment-alignment hypotheses in a bounded range",
@@ -135,9 +157,32 @@ def build_parser() -> argparse.ArgumentParser:
             action.add_argument("--case", type=Path)
             action.add_argument("--allow-write-enabled-source", action="store_true")
 
-    plugins = sub.add_parser("plugins", help="inspect format plugins")
+    plugins = sub.add_parser("plugins", help="compatibility alias for format plugins")
     plugins_sub = plugins.add_subparsers(dest="plugins_command")
     plugins_sub.add_parser("list")
+
+    formats = sub.add_parser("formats", help="inspect and rank supported storage/container families")
+    formats_sub = formats.add_subparsers(dest="formats_command")
+    formats_list = formats_sub.add_parser("list", help="show capability matrix")
+    formats_list.add_argument("--json", action="store_true")
+    formats_detect = formats_sub.add_parser("detect", help="rank format-family evidence")
+    formats_detect.add_argument("source", type=Path)
+    formats_detect.add_argument("--minimum-confidence", type=float, default=0.60)
+    formats_detect.add_argument("--minimum-margin", type=float, default=0.15)
+    formats_detect.add_argument("--json", action="store_true")
+
+    profiles = sub.add_parser("profiles", help="inspect model/firmware variant profiles")
+    profiles_sub = profiles.add_subparsers(dest="profiles_command")
+    profiles_list = profiles_sub.add_parser("list")
+    profiles_list.add_argument("--json", action="store_true")
+    profiles_match = profiles_sub.add_parser("match")
+    profiles_match.add_argument("--vendor")
+    profiles_match.add_argument("--model")
+    profiles_match.add_argument("--firmware")
+    profiles_match.add_argument("--family")
+    profiles_match.add_argument("--json", action="store_true")
+    profiles_load = profiles_sub.add_parser("validate-pack", help="validate an external JSON profile pack")
+    profiles_load.add_argument("path", type=Path)
 
     scan = sub.add_parser("scan", help="scan proprietary recording boundaries")
     scan.add_argument("source", type=Path)
@@ -158,6 +203,16 @@ def build_parser() -> argparse.ArgumentParser:
     recover_wfs.add_argument("--near", type=int, default=32)
     recover_wfs.add_argument("--far", type=int, default=4096)
     recover_wfs.add_argument("--case", type=Path)
+    recover_dhav = recover_sub.add_parser(
+        "dhav",
+        help="carve validated DHAV frames and demultiplex physical channel streams",
+    )
+    recover_dhav.add_argument("source", type=Path)
+    recover_dhav.add_argument("--out", type=Path, required=True)
+    recover_dhav.add_argument("--start", type=_int_auto, default=0)
+    recover_dhav.add_argument("--stop", type=_int_auto)
+    recover_dhav.add_argument("--include-unvalidated", action="store_true")
+    recover_dhav.add_argument("--case", type=Path)
 
     qc = sub.add_parser("qc", help="validate recovered video without hiding uncertainty")
     qc_sub = qc.add_subparsers(dest="qc_command")
@@ -211,6 +266,15 @@ def _job_to_dict(job) -> dict:
         "progress_total": job.progress_total,
         "progress_fraction": job.progress_fraction,
         "error": job.error,
+    }
+
+
+def _detection_to_dict(result) -> dict:
+    return {
+        "plugin": result.plugin,
+        "confidence": result.confidence,
+        "reasons": list(result.reasons),
+        "metadata": result.metadata,
     }
 
 
@@ -304,7 +368,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(snapshot.to_dict(), indent=2, sort_keys=True))
         return 0 if snapshot.captured else 2
 
-    if args.command == "profile" and args.profile_command in ("source", "wfs-layout"):
+    if args.command == "profile" and args.profile_command in ("source", "storage", "wfs-layout"):
         case = Case.load(args.case) if args.case else None
         details = {"source": str(args.source), "mode": args.profile_command, "output": str(args.out)}
         job = _case_job_start(case, f"profile.{args.profile_command}", details)
@@ -315,6 +379,8 @@ def main(argv: list[str] | None = None) -> int:
                     sample_size=args.sample_size,
                     sample_count=args.sample_count,
                 )
+            elif args.profile_command == "storage":
+                report = profile_storage(args.source)
             else:
                 report = infer_wfs_fragment_alignment(
                     args.source,
@@ -401,24 +467,111 @@ def main(argv: list[str] | None = None) -> int:
         registry = default_registry()
         for name in registry.names():
             plugin = registry.get(name)
-            print(f"{plugin.name}\t{plugin.display_name}")
+            print(f"{plugin.name}\t{plugin.display_name}\t{plugin.descriptor.support_level.name}")
+        return 0
+
+    if args.command == "formats" and args.formats_command == "list":
+        registry = default_registry()
+        rows = [descriptor.to_dict() for descriptor in registry.descriptors()]
+        if args.json:
+            print(json.dumps(rows, indent=2, sort_keys=True))
+        else:
+            for row in rows:
+                operations = ",".join(row["operations"]) or "none"
+                print(
+                    f"{row['family_id']:<10} {row['support_level']:<12} "
+                    f"{row['topology']:<28} ops={operations}"
+                )
+        return 0
+
+    if args.command == "formats" and args.formats_command == "detect":
+        registry = default_registry()
+        report = registry.detection_report(
+            args.source,
+            minimum_confidence=args.minimum_confidence,
+            minimum_margin=args.minimum_margin,
+        )
+        payload = {
+            "source": str(report.source),
+            "requires_review": report.requires_review,
+            "reason": report.reason,
+            "margin": report.margin,
+            "results": [_detection_to_dict(item) for item in report.results],
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(f"requires_review={report.requires_review}")
+            print(f"reason={report.reason}")
+            for result in report.results:
+                print(f"{result.plugin:<10} confidence={result.confidence:.2f}")
+                for reason in result.reasons:
+                    print(f"  - {reason}")
+        return 3 if report.requires_review else 0
+
+    if args.command == "profiles" and args.profiles_command == "list":
+        registry = default_profile_registry()
+        rows = [profile.to_dict() for profile in registry.all()]
+        if args.json:
+            print(json.dumps(rows, indent=2, sort_keys=True))
+        else:
+            for row in rows:
+                print(
+                    f"{row['profile_id']:<32} family={row['family_id']:<10} "
+                    f"state={row['validation_state']}"
+                )
+        return 0
+
+    if args.command == "profiles" and args.profiles_command == "match":
+        registry = default_profile_registry()
+        rows = registry.match(
+            vendor=args.vendor,
+            model=args.model,
+            firmware=args.firmware,
+            family_id=args.family,
+        )
+        payload = [{"score": score, **profile.to_dict()} for score, profile in rows]
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            for row in payload:
+                print(f"{row['score']:.2f}\t{row['profile_id']}\t{row['variant']}")
+        return 0
+
+    if args.command == "profiles" and args.profiles_command == "validate-pack":
+        registry = default_profile_registry()
+        loaded = registry.load_pack(args.path)
+        print(f"valid_profiles={len(loaded)}")
+        for profile in loaded:
+            print(f"{profile.profile_id}\t{profile.family_id}\t{profile.validation_state}")
         return 0
 
     if args.command == "scan":
         require_safe_source(args.source)
         registry = default_registry()
         if args.plugin == "auto":
-            detection, plugin = registry.detect_best(args.source)
-            if detection.confidence < 0.50:
-                print(
-                    f"automatic format detection confidence too low: {detection.confidence:.2f}",
-                    file=sys.stderr,
-                )
-                for reason in detection.reasons:
-                    print(f"  - {reason}", file=sys.stderr)
+            report = registry.detection_report(args.source)
+            if report.requires_review:
+                print(f"automatic format selection blocked: {report.reason}", file=sys.stderr)
+                for result in report.results:
+                    print(f"  {result.plugin}: {result.confidence:.2f}", file=sys.stderr)
                 return 3
+            plugin = registry.get(report.best.plugin)
         else:
             plugin = registry.get(args.plugin)
+
+        if not plugin.descriptor.supports_operation(FormatOperation.DATE_SCAN):
+            print(
+                f"format family '{plugin.name}' was selected but DATE_SCAN is not implemented; "
+                f"support level={plugin.descriptor.support_level.name}",
+                file=sys.stderr,
+            )
+            print(
+                "use 'vidrensic formats list' to inspect implemented operations for each family",
+                file=sys.stderr,
+            )
+            return 4
+
         boundaries = plugin.scan_date(
             args.source,
             args.date,
@@ -438,8 +591,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
             for item in boundaries:
-                frags = ",".join(str(value) for value in item.start_fragments)
-                print(f"{item.label}\tcount={len(item.start_fragments)}\tfragments={frags}")
+                starts = ",".join(str(value) for value in item.start_fragments)
+                print(f"{item.label}\tcount={len(item.start_fragments)}\tstarts={starts}")
         return 0
 
     if args.command == "recover" and args.recover_command == "wfs":
@@ -502,6 +655,48 @@ def main(argv: list[str] | None = None) -> int:
                 f"fragments={len(candidate.fragments)}\tbytes={candidate.native_bytes}\t"
                 f"output={candidate.native_output}"
             )
+        return 0
+
+    if args.command == "recover" and args.recover_command == "dhav":
+        require_safe_source(args.source)
+        case = Case.load(args.case) if args.case else None
+        details = {
+            "source": str(args.source),
+            "output": str(args.out),
+            "start": args.start,
+            "stop": args.stop,
+            "include_unvalidated": args.include_unvalidated,
+        }
+        job = _case_job_start(case, "dhav.recover", details)
+        if case and job:
+            details["job_id"] = job.job_id
+            case.audit.append("dhav.recovery.started", details, actor=case.examiner)
+        try:
+            manifest = demux_dhav_range(
+                args.source,
+                args.out,
+                start=args.start,
+                stop=args.stop,
+                include_unvalidated=args.include_unvalidated,
+            )
+        except Exception as exc:
+            if case and job:
+                case.jobs.fail(job.job_id, f"{type(exc).__name__}: {exc}")
+                case.audit.append(
+                    "dhav.recovery.failed",
+                    {**details, "error": f"{type(exc).__name__}: {exc}"},
+                    actor=case.examiner,
+                )
+            raise
+        if case and job:
+            case.jobs.checkpoint(job.job_id, {"manifest": str(manifest)})
+            case.jobs.complete(job.job_id)
+            case.audit.append(
+                "dhav.recovery.finished",
+                {**details, "manifest": str(manifest)},
+                actor=case.examiner,
+            )
+        print(f"manifest={manifest}")
         return 0
 
     if args.command == "qc" and args.qc_command in ("fast", "full"):

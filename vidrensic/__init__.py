@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-__version__ = "0.3.0a0"
+__version__ = "0.4.0a0"
 __product__ = "Vidrensic"
 __copyright__ = "Copyright (c) 2026 imedkablavi. All rights reserved."

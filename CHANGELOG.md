@@ -2,6 +2,40 @@
 
 All notable Vidrensic development changes are recorded here.
 
+## [0.4.0-alpha] - 2026-08-21
+
+### Added
+
+- Product-level format capability model with explicit `DETECT`, `PROFILE`, `PARSE`, `RECONSTRUCT`, `VALIDATE`, and `EXPORT` stages.
+- Storage-topology, recovery-strategy, and failure-mode vocabulary shared across DVR/NVR families.
+- Ranked multi-family detection with minimum-confidence and minimum-margin review blocking.
+- DHAV 24-byte frame-header / 8-byte footer parser with channel, frame number, packed timestamp, frame length, and Annex-B codec evidence.
+- Bounded DHAV carving and per-channel native/elementary demultiplexing with hashes, physical offsets, discontinuity evidence, and forensic manifests.
+- Generic raw Annex-B H.264/H.265 detector for stream-level recovery when a proprietary filesystem/index is unavailable.
+- Generic MPEG-PS/PES detector for surveillance containers and vendor variants using standard program-stream framing.
+- Read-only MBR/GPT mapping and known filesystem profiling for EXT, XFS, JFS, FAT, NTFS, exFAT, Btrfs, and HFS+ without mounting or repairing evidence.
+- Data-driven model/firmware variant profile registry and JSON profile-pack validator.
+- Hikvision proprietary-storage profiler with dynamic `HIKVISION@HANGZHOU` Master Sector discovery and bounded geometry plausibility checks.
+- Synthetic regression tests for DHAV parsing/demux, corrupted DHAV footers, storage maps, ranked detection, profile packs, and Hikvision Master Sector candidates.
+- `docs/SUPPORT_MATRIX.md` defining honest family capability and failure-mode coverage.
+- `docs/FORMAT_ONBOARDING.md` defining how a new recorder model/firmware family is promoted from research to validated support.
+
+### Changed
+
+- WFS is now represented as one format family inside a multi-format forensic architecture rather than the identity of the whole product.
+- WFS detection also records observed WFS 0.4/0.5 ASCII markers while retaining structural timestamp/record evidence as the stronger signal.
+- DHAV structural profiles are vendor-neutral. Vendor/model names are hints only; compatible bytes and validated structure determine family support.
+- Automatic format selection now fails closed when the best result is weak or too close to another family.
+- Known filesystem detection is explicitly separated from assumptions about where surveillance video is physically stored.
+
+### Forensic behavior
+
+- `formats list` reports the highest real capability for each active family instead of a single misleading supported/unsupported flag.
+- `formats detect` ranks all active family hypotheses and exposes evidence/reasons/confidence.
+- DHAV native outputs preserve complete validated frame records; chronological circular-buffer reconstruction is not implied by physical-order demultiplexing.
+- Hikvision is `PROFILE` only in this milestone; HIKBTREE/data-block recording recovery is not claimed yet.
+- Generic Annex-B and MPEG-PS support does not infer a recorder vendor or wall-clock timeline that the stream does not contain.
+
 ## [0.3.0-alpha] - 2026-08-21
 
 ### Added
