@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 import json
 import re
 import uuid
 
 from vidrensic.core.audit import AuditLog
+from vidrensic.core.jobs import JobStore
 
 
 CASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
@@ -28,6 +29,10 @@ class Case:
         return AuditLog(self.root / "logs" / "audit.jsonl")
 
     @property
+    def jobs(self) -> JobStore:
+        return JobStore(self.root / "state" / "jobs.sqlite3")
+
+    @property
     def metadata_path(self) -> Path:
         return self.root / "case.json"
 
@@ -38,7 +43,7 @@ class Case:
         case_id: str,
         *,
         examiner: str | None = None,
-    ) -> "Case":
+    ) -> Case:
         if not CASE_ID_RE.fullmatch(case_id):
             raise ValueError(
                 "case_id must be 1-80 characters using letters, numbers, '.', '_' or '-'"
@@ -64,10 +69,13 @@ class Case:
             case_id=case_id,
             case_uuid=str(uuid.uuid4()),
             root=case_root,
-            created_utc=datetime.now(timezone.utc).isoformat(),
+            created_utc=datetime.now(UTC).isoformat(),
             examiner=examiner,
         )
         obj._write_metadata()
+        # Initialize job DB immediately so schema failures are discovered while
+        # creating the case, not during a later long-running operation.
+        obj.jobs
         obj.audit.append(
             "case.created",
             {
@@ -81,7 +89,7 @@ class Case:
         return obj
 
     @classmethod
-    def load(cls, root: Path) -> "Case":
+    def load(cls, root: Path) -> Case:
         root = root.expanduser().resolve()
         data = json.loads((root / "case.json").read_text(encoding="utf-8"))
         if data.get("schema_version") != CASE_SCHEMA_VERSION:
