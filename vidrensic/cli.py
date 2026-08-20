@@ -10,7 +10,7 @@ import sys
 
 from vidrensic import __product__, __version__
 from vidrensic.acquisition.ddrescue import AcquisitionPlan, execute_plan
-from vidrensic.acquisition.linux import inspect_source
+from vidrensic.acquisition.linux import inspect_source, require_safe_source
 from vidrensic.core.case import Case
 from vidrensic.plugins.registry import PluginRegistry
 from vidrensic.plugins.wfs import WFSPlugin
@@ -153,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
                     "size": plan.size,
                     "retry_passes": plan.retry_passes,
                     "direct": plan.direct,
+                    "write_enabled_override": args.allow_write_enabled_source,
                 },
                 actor=case.examiner,
             )
@@ -186,6 +187,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "scan":
+        # A scanner only opens the source read-only, but direct block-device
+        # analysis still follows the evidence safety policy.
+        require_safe_source(args.source)
         registry = default_registry()
         if args.plugin == "auto":
             detection, plugin = registry.detect_best(args.source)
