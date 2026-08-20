@@ -5,6 +5,7 @@ from pathlib import Path
 import itertools
 import os
 
+from vidrensic.media.elementary import classify_elementary_file
 from vidrensic.plugins.wfs.codec import (
     FRAGMENT_SIZE,
     VIDEO_TYPES,
@@ -30,9 +31,19 @@ class WFSChain:
 @dataclass(frozen=True)
 class ExtractResult:
     output: Path
-    hevc_bytes: int
+    video_bytes: int
     video_packets: int
     type_counts: dict[int, int]
+    codec_hint: str | None
+    codec_confidence: float
+    trailing_unparsed_bytes: int
+    codec_reasons: tuple[str, ...]
+
+    @property
+    def hevc_bytes(self) -> int:
+        """Compatibility alias retained for pre-0.5 callers."""
+
+        return self.video_bytes
 
 
 def _pread(fd: int, size: int, offset: int) -> bytes:
@@ -200,6 +211,12 @@ def build_chains(
         raise ValueError("stop_fragment must follow all start fragments")
     if near <= 0 or far < near:
         raise ValueError("require 0 < near <= far")
+    if candidate_top <= 0 or candidate_top > 16:
+        raise ValueError("candidate_top must be between 1 and 16")
+    if max_iterations <= 0:
+        raise ValueError("max_iterations must be positive")
+    if data_offset < 0 or fragment_size <= 0:
+        raise ValueError("data_offset and fragment_size must be valid")
 
     states = [
         init_chain(
@@ -287,7 +304,7 @@ def build_chains(
     return states
 
 
-def extract_hevc(
+def extract_video(
     fd: int,
     fragments: list[int] | tuple[int, ...],
     output: Path,
@@ -295,7 +312,16 @@ def extract_hevc(
     data_offset: int = 0,
     fragment_size: int = FRAGMENT_SIZE,
 ) -> ExtractResult:
-    """Extract native video-bearing WFS payloads into an HEVC elementary stream."""
+    """Extract WFS video-bearing payload bytes without assuming H.264 vs HEVC."""
+
+    if not fragments:
+        raise ValueError("at least one fragment is required")
+    if any(fragment < 0 for fragment in fragments):
+        raise ValueError("fragments cannot be negative")
+    if len(set(fragments)) != len(fragments):
+        raise ValueError("duplicate fragments are not valid for extraction")
+    if data_offset < 0 or fragment_size <= 0:
+        raise ValueError("data_offset and fragment_size must be valid")
 
     output = output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -344,9 +370,37 @@ def extract_hevc(
             if len(buffer) > 8 * 1024 * 1024:
                 raise WFSParseError("WFS extraction carry buffer exceeded safety limit")
 
+    trailing = 0
+    if buffer and not padding_here(buffer, 0):
+        trailing = len(buffer)
+
+    codec = classify_elementary_file(output) if written else None
     return ExtractResult(
         output=output,
-        hevc_bytes=written,
+        video_bytes=written,
         video_packets=packets,
         type_counts=type_counts,
+        codec_hint=codec.codec if codec else None,
+        codec_confidence=codec.confidence if codec else 0.0,
+        trailing_unparsed_bytes=trailing,
+        codec_reasons=codec.reasons if codec else ("no video payload bytes were extracted",),
+    )
+
+
+def extract_hevc(
+    fd: int,
+    fragments: list[int] | tuple[int, ...],
+    output: Path,
+    *,
+    data_offset: int = 0,
+    fragment_size: int = FRAGMENT_SIZE,
+) -> ExtractResult:
+    """Deprecated compatibility wrapper; codec is no longer assumed to be HEVC."""
+
+    return extract_video(
+        fd,
+        fragments,
+        output,
+        data_offset=data_offset,
+        fragment_size=fragment_size,
     )
