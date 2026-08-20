@@ -30,8 +30,7 @@ class SourceInfo:
 def _block_size(path: Path) -> int:
     proc = subprocess.run(
         ["blockdev", "--getsize64", str(path)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
         timeout=15,
         check=False,
@@ -57,19 +56,37 @@ def _sysfs_ro(major: int, minor: int) -> bool | None:
     return None
 
 
-def _mounted_paths(path: Path, major: int | None, minor: int | None) -> tuple[str, ...]:
+def _device_ids(path: Path, major: int, minor: int) -> set[str]:
+    """Return source and descendant MAJ:MIN values (partitions/LVs when lsblk reports them)."""
+
+    ids = {f"{major}:{minor}"}
+    proc = subprocess.run(
+        ["lsblk", "-nr", "-o", "MAJ:MIN", str(path)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    if proc.returncode == 0:
+        for line in proc.stdout.splitlines():
+            value = line.strip()
+            if value and ":" in value:
+                ids.add(value)
+    return ids
+
+
+def _mounted_paths(device_ids: set[str]) -> tuple[str, ...]:
     mounts: list[str] = []
     mountinfo = Path("/proc/self/mountinfo")
     if not mountinfo.exists():
         return ()
-    wanted = f"{major}:{minor}" if major is not None and minor is not None else None
     for line in mountinfo.read_text(encoding="utf-8", errors="replace").splitlines():
         fields = line.split()
         if len(fields) < 5:
             continue
         dev_id = fields[2]
         mount_point = fields[4].replace("\\040", " ")
-        if wanted is not None and dev_id == wanted:
+        if dev_id in device_ids:
             mounts.append(mount_point)
     return tuple(sorted(set(mounts)))
 
@@ -86,7 +103,7 @@ def inspect_source(path: Path) -> SourceInfo:
         minor = os.minor(st.st_rdev)
         size = _block_size(path)
         ro = _sysfs_ro(major, minor)
-        mounts = _mounted_paths(path, major, minor)
+        mounts = _mounted_paths(_device_ids(path, major, minor))
     else:
         major = minor = None
         size = st.st_size
@@ -111,8 +128,9 @@ def require_safe_source(path: Path, *, allow_write_enabled: bool = False) -> Sou
         raise FileNotFoundError(path)
     if info.is_block_device:
         if info.mounted_at:
+            mounted = ", ".join(info.mounted_at)
             raise PermissionError(
-                f"evidence device is mounted at {', '.join(info.mounted_at)}; unmount before acquisition"
+                f"evidence device or descendant is mounted at {mounted}; unmount before acquisition"
             )
         if info.read_only is not True and not allow_write_enabled:
             state = "unknown" if info.read_only is None else "write-enabled"
