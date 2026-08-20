@@ -203,7 +203,10 @@ def _parse_gpt(fd: int, source_size: int) -> tuple[int, list[PartitionRecord]] |
             continue
 
         ordered = sorted(partitions, key=lambda item: (item.start_lba, item.end_lba))
-        if any(left.end_lba >= right.start_lba for left, right in zip(ordered, ordered[1:])):
+        if any(
+            left.end_lba >= right.start_lba
+            for left, right in zip(ordered, ordered[1:], strict=False)
+        ):
             continue
         return sector_size, partitions
     return None
