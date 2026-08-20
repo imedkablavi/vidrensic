@@ -7,6 +7,7 @@ from vidrensic.plugins.base import DetectionResult, RecordingBoundary
 from vidrensic.plugins.capabilities import (
     FailureMode,
     FormatDescriptor,
+    FormatOperation,
     RecoveryStrategy,
     StorageTopology,
     SupportLevel,
@@ -23,7 +24,15 @@ class WFSPlugin:
         display_name="WFS surveillance storage",
         support_level=SupportLevel.RECONSTRUCT,
         topology=StorageTopology.PROPRIETARY_FILESYSTEM,
-        aliases=("WFS 0.4", "WFS 0.5", "WFH-family investigative lead"),
+        operations=(
+            FormatOperation.DETECT,
+            FormatOperation.PROFILE,
+            FormatOperation.DATE_SCAN,
+            FormatOperation.STREAM_PARSE,
+            FormatOperation.NATIVE_RECOVER,
+            FormatOperation.MEDIA_QC,
+        ),
+        aliases=("WFS 0.4", "WFS 0.5"),
         codecs=("H.264 variants", "H.265/HEVC variants"),
         timestamp_kinds=("observed WFS packed timestamp",),
         strategies=(
