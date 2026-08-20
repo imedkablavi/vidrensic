@@ -12,6 +12,8 @@ from vidrensic import __product__, __version__
 from vidrensic.acquisition.ddrescue import AcquisitionPlan, execute_plan
 from vidrensic.acquisition.linux import inspect_source, require_safe_source
 from vidrensic.core.case import Case
+from vidrensic.core.jobs import JobStatus
+from vidrensic.media.qc import fast_three_point_check, full_decode_check
 from vidrensic.plugins.registry import PluginRegistry
 from vidrensic.plugins.wfs import WFSPlugin
 from vidrensic.plugins.wfs.recovery import recover_segment
@@ -43,6 +45,14 @@ def _date(value: str) -> date:
         raise argparse.ArgumentTypeError("date must be YYYY-MM-DD") from exc
 
 
+def _job_status(value: str) -> JobStatus:
+    try:
+        return JobStatus(value.upper())
+    except ValueError as exc:
+        choices = ", ".join(item.value for item in JobStatus)
+        raise argparse.ArgumentTypeError(f"status must be one of: {choices}") from exc
+
+
 def default_registry() -> PluginRegistry:
     return PluginRegistry([WFSPlugin()])
 
@@ -64,6 +74,17 @@ def build_parser() -> argparse.ArgumentParser:
     verify = case_sub.add_parser("verify-audit", help="verify case audit hash chain")
     verify.add_argument("case", type=Path)
     verify.add_argument("--expected-tail-hash")
+
+    jobs = sub.add_parser("jobs", help="inspect persistent case jobs")
+    jobs_sub = jobs.add_subparsers(dest="jobs_command")
+    jobs_list = jobs_sub.add_parser("list")
+    jobs_list.add_argument("--case", type=Path, required=True)
+    jobs_list.add_argument("--status", type=_job_status)
+    jobs_list.add_argument("--kind")
+    jobs_list.add_argument("--limit", type=int, default=100)
+    jobs_show = jobs_sub.add_parser("show")
+    jobs_show.add_argument("job_id")
+    jobs_show.add_argument("--case", type=Path, required=True)
 
     source_cmd = sub.add_parser("source", help="inspect evidence sources")
     source_sub = source_cmd.add_subparsers(dest="source_command")
@@ -110,6 +131,22 @@ def build_parser() -> argparse.ArgumentParser:
     recover_wfs.add_argument("--far", type=int, default=4096)
     recover_wfs.add_argument("--case", type=Path)
 
+    qc = sub.add_parser("qc", help="validate recovered video without hiding uncertainty")
+    qc_sub = qc.add_subparsers(dest="qc_command")
+    qc_fast = qc_sub.add_parser("fast", help="decode beginning/middle/end; never returns PASS")
+    qc_fast.add_argument("path", type=Path)
+    qc_fast.add_argument("--expected-duration", type=float)
+    qc_fast.add_argument("--report", type=Path)
+    qc_fast.add_argument("--case", type=Path)
+    qc_full = qc_sub.add_parser("full", help="full video decode and timing validation")
+    qc_full.add_argument("path", type=Path)
+    qc_full.add_argument("--expected-duration", type=float)
+    qc_full.add_argument("--ambiguous", action="store_true")
+    qc_full.add_argument("--unresolved", action="store_true")
+    qc_full.add_argument("--timeout", type=float)
+    qc_full.add_argument("--report", type=Path)
+    qc_full.add_argument("--case", type=Path)
+
     return parser
 
 
@@ -133,6 +170,31 @@ def _source_to_dict(info) -> dict:
     return result
 
 
+def _job_to_dict(job) -> dict:
+    return {
+        "job_id": job.job_id,
+        "kind": job.kind,
+        "status": job.status.value,
+        "created_utc": job.created_utc,
+        "updated_utc": job.updated_utc,
+        "parameters": job.parameters,
+        "checkpoint": job.checkpoint,
+        "progress_current": job.progress_current,
+        "progress_total": job.progress_total,
+        "progress_fraction": job.progress_fraction,
+        "error": job.error,
+    }
+
+
+def _print_qc(report) -> int:
+    print(f"status={report.decision.status.value}")
+    print(f"mode={report.mode}")
+    print(f"path={report.path}")
+    for reason in report.decision.reasons:
+        print(f"reason={reason}")
+    return 1 if report.decision.status.value == "FAIL" else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -147,6 +209,17 @@ def main(argv: list[str] | None = None) -> int:
         ok, result = case.audit.verify(expected_tail_hash=args.expected_tail_hash)
         print(result)
         return 0 if ok else 1
+
+    if args.command == "jobs" and args.jobs_command == "list":
+        case = Case.load(args.case)
+        rows = case.jobs.list(status=args.status, kind=args.kind, limit=args.limit)
+        print(json.dumps([_job_to_dict(job) for job in rows], indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "jobs" and args.jobs_command == "show":
+        case = Case.load(args.case)
+        print(json.dumps(_job_to_dict(case.jobs.get(args.job_id)), indent=2, sort_keys=True))
+        return 0
 
     if args.command == "source" and args.source_command == "inspect":
         info = inspect_source(args.path)
@@ -168,42 +241,48 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "acquire" and args.acquire_command == "run":
         plan = _plan_from_args(args)
         case = Case.load(args.case) if args.case else None
-        if case:
-            case.audit.append(
-                "acquisition.started",
-                {
-                    "source": str(plan.source),
-                    "output": str(plan.output),
-                    "mapfile": str(plan.mapfile),
-                    "offset": plan.offset,
-                    "size": plan.size,
-                    "retry_passes": plan.retry_passes,
-                    "direct": plan.direct,
-                    "write_enabled_override": args.allow_write_enabled_source,
-                },
-                actor=case.examiner,
-            )
+        details = {
+            "source": str(plan.source),
+            "output": str(plan.output),
+            "mapfile": str(plan.mapfile),
+            "offset": plan.offset,
+            "size": plan.size,
+            "retry_passes": plan.retry_passes,
+            "direct": plan.direct,
+            "write_enabled_override": args.allow_write_enabled_source,
+        }
+        job = case.jobs.create("acquisition.ddrescue", details) if case else None
+        if job:
+            job = case.jobs.start(job.job_id)
+            details["job_id"] = job.job_id
+            case.audit.append("acquisition.started", details, actor=case.examiner)
         try:
             results = execute_plan(
                 plan,
                 allow_write_enabled_source=args.allow_write_enabled_source,
             )
         except Exception as exc:
-            if case:
+            if case and job:
+                case.jobs.fail(job.job_id, f"{type(exc).__name__}: {exc}")
                 case.audit.append(
                     "acquisition.failed",
-                    {"error": f"{type(exc).__name__}: {exc}"},
+                    {**details, "error": f"{type(exc).__name__}: {exc}"},
                     actor=case.examiner,
                 )
             raise
         return_codes = [result.returncode for result in results]
-        if case:
+        success = bool(return_codes) and all(code == 0 for code in return_codes)
+        if case and job:
+            if success:
+                case.jobs.complete(job.job_id)
+            else:
+                case.jobs.fail(job.job_id, f"ddrescue return codes: {return_codes}")
             case.audit.append(
                 "acquisition.finished",
-                {"return_codes": return_codes, "output": str(plan.output)},
+                {**details, "return_codes": return_codes, "success": success},
                 actor=case.examiner,
             )
-        return 0 if return_codes and all(code == 0 for code in return_codes) else 1
+        return 0 if success else 1
 
     if args.command == "plugins" and args.plugins_command == "list":
         registry = default_registry()
@@ -263,7 +342,10 @@ def main(argv: list[str] | None = None) -> int:
             "near": args.near,
             "far": args.far,
         }
-        if case:
+        job = case.jobs.create("wfs.recover", details) if case else None
+        if job:
+            job = case.jobs.start(job.job_id)
+            details["job_id"] = job.job_id
             case.audit.append("wfs.recovery.started", details, actor=case.examiner)
         try:
             candidates, manifest = recover_segment(
@@ -277,14 +359,20 @@ def main(argv: list[str] | None = None) -> int:
                 far=args.far,
             )
         except Exception as exc:
-            if case:
+            if case and job:
+                case.jobs.fail(job.job_id, f"{type(exc).__name__}: {exc}")
                 case.audit.append(
                     "wfs.recovery.failed",
                     {**details, "error": f"{type(exc).__name__}: {exc}"},
                     actor=case.examiner,
                 )
             raise
-        if case:
+        if case and job:
+            case.jobs.checkpoint(
+                job.job_id,
+                {"manifest": str(manifest), "candidate_count": len(candidates)},
+            )
+            case.jobs.complete(job.job_id)
             case.audit.append(
                 "wfs.recovery.finished",
                 {
@@ -303,6 +391,64 @@ def main(argv: list[str] | None = None) -> int:
                 f"output={candidate.native_output}"
             )
         return 0
+
+    if args.command == "qc" and args.qc_command in ("fast", "full"):
+        case = Case.load(args.case) if args.case else None
+        details = {
+            "path": str(args.path),
+            "mode": args.qc_command,
+            "expected_duration": args.expected_duration,
+        }
+        job = case.jobs.create(f"media.qc.{args.qc_command}", details) if case else None
+        if job:
+            job = case.jobs.start(job.job_id)
+            details["job_id"] = job.job_id
+            case.audit.append("media.qc.started", details, actor=case.examiner)
+        try:
+            if args.qc_command == "fast":
+                report = fast_three_point_check(
+                    args.path,
+                    expected_duration=args.expected_duration,
+                )
+            else:
+                report = full_decode_check(
+                    args.path,
+                    expected_duration=args.expected_duration,
+                    reconstruction_ambiguous=args.ambiguous,
+                    reconstruction_unresolved=args.unresolved,
+                    timeout=args.timeout,
+                )
+            if args.report:
+                report.write_json(args.report)
+        except Exception as exc:
+            if case and job:
+                case.jobs.fail(job.job_id, f"{type(exc).__name__}: {exc}")
+                case.audit.append(
+                    "media.qc.failed",
+                    {**details, "error": f"{type(exc).__name__}: {exc}"},
+                    actor=case.examiner,
+                )
+            raise
+        if case and job:
+            case.jobs.checkpoint(
+                job.job_id,
+                {
+                    "status": report.decision.status.value,
+                    "report": str(args.report) if args.report else None,
+                },
+            )
+            case.jobs.complete(job.job_id)
+            case.audit.append(
+                "media.qc.finished",
+                {
+                    **details,
+                    "status": report.decision.status.value,
+                    "reasons": list(report.decision.reasons),
+                    "report": str(args.report) if args.report else None,
+                },
+                actor=case.examiner,
+            )
+        return _print_qc(report)
 
     parser.print_help()
     return 2
