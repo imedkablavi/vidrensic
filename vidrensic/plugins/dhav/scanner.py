@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -144,7 +145,7 @@ def validate_frame_at(
     )
 
 
-def scan_dhav_frames(
+def iter_dhav_frames(
     source: Path,
     *,
     start: int = 0,
@@ -152,12 +153,11 @@ def scan_dhav_frames(
     chunk_size: int = 8 * 1024 * 1024,
     max_frames: int | None = None,
     strict_footer: bool = True,
-) -> list[DHAVFrameRecord]:
-    """Scan a source range for DHAV frames using header/footer validation.
+) -> Iterator[DHAVFrameRecord]:
+    """Yield DHAV records in physical order using bounded memory.
 
-    This function intentionally returns physical-order records. Chronological
-    reordering is a separate reconstruction decision because circular recording
-    stores can wrap and timestamps can themselves be damaged.
+    Only the current chunk, a three-byte overlap, and one candidate record are
+    held. The scanner does not retain a global set of every frame offset.
     """
 
     if start < 0:
@@ -173,10 +173,10 @@ def scan_dhav_frames(
         raise ValueError("stop cannot precede start")
 
     fd = os.open(info.path, os.O_RDONLY)
-    records: list[DHAVFrameRecord] = []
     carry = b""
     position = start
-    emitted: set[int] = set()
+    last_examined_offset: int | None = None
+    emitted = 0
     try:
         while position < end:
             wanted = min(chunk_size, end - position)
@@ -192,22 +192,51 @@ def scan_dhav_frames(
                     break
                 absolute = data_base + cursor
                 cursor += 1
-                if absolute < start or absolute in emitted:
+                if absolute < start:
                     continue
-                emitted.add(absolute)
+                if last_examined_offset is not None and absolute <= last_examined_offset:
+                    continue
+                last_examined_offset = absolute
                 record = validate_frame_at(fd, absolute, info.size_bytes)
                 if record is None:
                     continue
                 if strict_footer and not record.structurally_valid:
                     continue
-                records.append(record)
-                if max_frames is not None and len(records) >= max_frames:
-                    return records
+                yield record
+                emitted += 1
+                if max_frames is not None and emitted >= max_frames:
+                    return
             carry = data[-3:]
             position += len(chunk)
     finally:
         os.close(fd)
-    return records
+
+
+def scan_dhav_frames(
+    source: Path,
+    *,
+    start: int = 0,
+    stop: int | None = None,
+    chunk_size: int = 8 * 1024 * 1024,
+    max_frames: int | None = None,
+    strict_footer: bool = True,
+) -> list[DHAVFrameRecord]:
+    """Materialize a DHAV scan for bounded inspection/tests.
+
+    Full recovery paths use `iter_dhav_frames()` directly to keep memory use
+    bounded on multi-terabyte sources.
+    """
+
+    return list(
+        iter_dhav_frames(
+            source,
+            start=start,
+            stop=stop,
+            chunk_size=chunk_size,
+            max_frames=max_frames,
+            strict_footer=strict_footer,
+        )
+    )
 
 
 def demux_dhav_range(
@@ -218,30 +247,25 @@ def demux_dhav_range(
     stop: int | None = None,
     include_unvalidated: bool = False,
 ) -> Path:
-    """Demultiplex a DHAV physical range into per-channel native and ES copies.
-
-    Native `.dhav` outputs preserve complete validated frame records. Elementary
-    stream files contain only payloads that exhibit a conservative Annex-B codec
-    signature. Output remains REVIEW when timestamp/frame-number discontinuities
-    or mixed codec hints are observed.
-    """
+    """Stream validated DHAV records into per-channel native and ES copies."""
 
     info = require_safe_source(source)
     output_dir = output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    records = scan_dhav_frames(
-        info.path,
-        start=start,
-        stop=stop,
-        strict_footer=not include_unvalidated,
-    )
 
     native_handles: dict[int, Any] = {}
     es_handles: dict[int, Any] = {}
     stats: dict[int, ChannelStats] = {}
+    frame_count = 0
     fd = os.open(info.path, os.O_RDONLY)
     try:
-        for frame in records:
+        for frame in iter_dhav_frames(
+            info.path,
+            start=start,
+            stop=stop,
+            strict_footer=not include_unvalidated,
+        ):
+            frame_count += 1
             channel = frame.header.channel
             stat = stats.setdefault(channel, ChannelStats(channel=channel))
             native = native_handles.get(channel)
@@ -309,12 +333,14 @@ def demux_dhav_range(
         "scan_start": start,
         "scan_stop": info.size_bytes if stop is None else min(stop, info.size_bytes),
         "ordering": "physical",
+        "streaming_scan": True,
         "include_unvalidated": include_unvalidated,
-        "frame_count": len(records),
+        "frame_count": frame_count,
         "channels": channels,
         "forensic_notes": [
             "native outputs are derived channel-demultiplexed copies; source evidence is unchanged",
             "physical ordering is preserved; chronological circular-buffer reconstruction is not implied",
+            "full recovery uses a streaming frame iterator instead of retaining every frame record in memory",
             "UNKNOWN is used when no discontinuity was observed because full QC has not yet run",
         ],
     }
