@@ -12,6 +12,30 @@ FOOTER_SIZE = 8
 MIN_FRAME_SIZE = BASE_HEADER_SIZE + FOOTER_SIZE
 MAX_FRAME_SIZE = 64 * 1024 * 1024
 
+SAMPLE_RATES = (
+    8000,
+    4000,
+    8000,
+    11025,
+    16000,
+    20000,
+    22050,
+    32000,
+    44100,
+    48000,
+    96000,
+    192000,
+    64000,
+)
+VIDEO_CODEC_NAMES = {
+    0x01: "mpeg4",
+    0x02: "h264",
+    0x03: "mjpeg",
+    0x04: "h264",
+    0x08: "h264",
+    0x0C: "hevc",
+}
+
 
 class DHAVParseError(ValueError):
     pass
@@ -40,12 +64,23 @@ class DHAVHeader:
         return self.frame_length - FOOTER_SIZE - self.payload_relative_offset
 
 
-def decode_timestamp_word(value: int) -> datetime | None:
-    """Decode the packed DHAV date word used by FFmpeg's DHAV demuxer.
+@dataclass(frozen=True)
+class DHAVExtensionInfo:
+    width: int | None = None
+    height: int | None = None
+    video_codec_code: int | None = None
+    video_codec: str | None = None
+    frame_rate: int | None = None
+    audio_channels: int | None = None
+    audio_codec_code: int | None = None
+    sample_rate: int | None = None
+    parsed_types: tuple[int, ...] = ()
+    unknown_types: tuple[int, ...] = ()
+    truncated: bool = False
 
-    The bit layout is the same year/month/day/hour/minute/second packing seen
-    in several surveillance formats. Invalid calendar values remain unknown.
-    """
+
+def decode_timestamp_word(value: int) -> datetime | None:
+    """Decode the packed DHAV date word used by FFmpeg's DHAV demuxer."""
 
     try:
         return datetime(
@@ -100,6 +135,96 @@ def parse_header(data: bytes, offset: int = 0) -> DHAVHeader:
     )
 
 
+def _sample_rate(index: int) -> int | None:
+    return SAMPLE_RATES[index] if 0 <= index < len(SAMPLE_RATES) else None
+
+
+def parse_extension(data: bytes) -> DHAVExtensionInfo:
+    """Parse documented DHAV extension records conservatively.
+
+    Record widths follow FFmpeg's DHAV demuxer. Unknown types terminate parsing
+    because their size is not safely known; raw frame bytes remain preserved.
+    """
+
+    pos = 0
+    width = height = None
+    video_codec_code = frame_rate = None
+    audio_channels = audio_codec_code = sample_rate = None
+    parsed: list[int] = []
+    unknown: list[int] = []
+    truncated = False
+
+    while pos < len(data):
+        record_type = data[pos]
+        if record_type == 0x80:
+            length = 4
+            if pos + length > len(data):
+                truncated = True
+                break
+            width = 8 * data[pos + 2]
+            height = 8 * data[pos + 3]
+        elif record_type == 0x81:
+            length = 4
+            if pos + length > len(data):
+                truncated = True
+                break
+            video_codec_code = data[pos + 2]
+            frame_rate = data[pos + 3]
+        elif record_type == 0x82:
+            length = 8
+            if pos + length > len(data):
+                truncated = True
+                break
+            width = struct.unpack_from("<H", data, pos + 4)[0]
+            height = struct.unpack_from("<H", data, pos + 6)[0]
+        elif record_type == 0x83:
+            length = 4
+            if pos + length > len(data):
+                truncated = True
+                break
+            audio_channels = data[pos + 1]
+            audio_codec_code = data[pos + 2]
+            sample_rate = _sample_rate(data[pos + 3])
+        elif record_type == 0x8C:
+            length = 8
+            if pos + length > len(data):
+                truncated = True
+                break
+            audio_channels = data[pos + 2]
+            audio_codec_code = data[pos + 3]
+            sample_rate = _sample_rate(data[pos + 4])
+        elif record_type in {0x88, 0x91, 0x92, 0x93, 0x95, 0x9A, 0x9B, 0xB3}:
+            length = 8
+            if pos + length > len(data):
+                truncated = True
+                break
+        elif record_type in {0x84, 0x85, 0x8B, 0x94, 0x96, 0xA0, 0xB2, 0xB4}:
+            length = 4
+            if pos + length > len(data):
+                truncated = True
+                break
+        else:
+            unknown.append(record_type)
+            break
+
+        parsed.append(record_type)
+        pos += length
+
+    return DHAVExtensionInfo(
+        width=width,
+        height=height,
+        video_codec_code=video_codec_code,
+        video_codec=VIDEO_CODEC_NAMES.get(video_codec_code),
+        frame_rate=frame_rate,
+        audio_channels=audio_channels,
+        audio_codec_code=audio_codec_code,
+        sample_rate=sample_rate,
+        parsed_types=tuple(parsed),
+        unknown_types=tuple(unknown),
+        truncated=truncated,
+    )
+
+
 def validate_footer(footer: bytes, frame_length: int) -> tuple[bool, bool, int | None]:
     if len(footer) != FOOTER_SIZE:
         return False, False, None
@@ -113,10 +238,7 @@ def annexb_codec_hint(data: bytes) -> str | None:
 
     if not data:
         return None
-    # Search both 3-byte and 4-byte start codes and inspect the following NAL
-    # header. We only claim a codec when a characteristic parameter-set NAL is
-    # observed; ordinary slice NAL values overlap too much for safe guessing.
-    for marker in (b"\x00\x00\x00\x01", b"\x00\x00\x01"):
+    for marker in (b"\x00\x00\x00\x01", b"\x00\x01"):
         pos = 0
         while True:
             pos = data.find(marker, pos)
