@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import BinaryIO
 import itertools
 import os
 
@@ -323,8 +322,6 @@ def extract_hevc(
                     break
                 info = packet_info(buffer, offset)
                 if info is None:
-                    # Preserve an incomplete possible header near the end. A
-                    # structural failure elsewhere is not silently skipped.
                     if len(buffer) - offset < 16:
                         break
                     raise WFSParseError(
@@ -344,7 +341,6 @@ def extract_hevc(
                 offset = end
 
             buffer = buffer[offset:]
-            # A malicious/corrupt chain must not grow carry data without bound.
             if len(buffer) > 8 * 1024 * 1024:
                 raise WFSParseError("WFS extraction carry buffer exceeded safety limit")
 
