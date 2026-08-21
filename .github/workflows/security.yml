@@ -45,3 +45,17 @@ jobs:
 
       - name: Check tracked public text
         run: python scripts/public_hygiene.py
+
+  history-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned Gitleaks
+        run: go install github.com/gitleaks/gitleaks/v8@v8.30.1
+
+      - name: Scan complete Git history
+        run: "$(go env GOPATH)/bin/gitleaks" git --redact --no-banner --exit-code 1 .
