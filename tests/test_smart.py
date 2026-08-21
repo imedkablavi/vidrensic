@@ -7,16 +7,16 @@ from vidrensic.acquisition.smart import _parse_snapshot
 
 def test_parse_smart_snapshot_preserves_health_evidence() -> None:
     data = {
-        "model_name": "ST32000646NS",
-        "serial_number": "SERIAL-TEST",
-        "firmware_version": "G009",
-        "user_capacity": {"bytes": 2_000_398_934_016},
+        "model_name": "SYNTHETIC-DVR-DISK-2TB",
+        "serial_number": "SYNTHETIC-0001",
+        "firmware_version": "TEST",
+        "user_capacity": {"bytes": 2_000_000_000_000},
         "logical_block_size": 512,
-        "physical_block_size": 512,
+        "physical_block_size": 4096,
         "rotation_rate": 7200,
         "smart_status": {"passed": True},
         "temperature": {"current": 37},
-        "power_on_time": {"hours": 28649},
+        "power_on_time": {"hours": 12345},
         "ata_smart_attributes": {
             "table": [
                 {"id": 5, "raw": {"value": 6}},
@@ -28,8 +28,8 @@ def test_parse_smart_snapshot_preserves_health_evidence() -> None:
     }
     snapshot = _parse_snapshot(Path("/dev/sdb"), data, returncode=0, error=None)
     assert snapshot.captured
-    assert snapshot.model == "ST32000646NS"
-    assert snapshot.capacity_bytes == 2_000_398_934_016
+    assert snapshot.model == "SYNTHETIC-DVR-DISK-2TB"
+    assert snapshot.capacity_bytes == 2_000_000_000_000
     assert snapshot.smart_passed is True
     assert snapshot.reallocated_sectors == 6
     assert snapshot.pending_sectors == 2
@@ -40,7 +40,7 @@ def test_parse_smart_snapshot_preserves_health_evidence() -> None:
 def test_parse_smart_snapshot_keeps_nonzero_return_code_with_json() -> None:
     snapshot = _parse_snapshot(
         Path("/dev/sdb"),
-        {"model_name": "DVR Disk", "smart_status": {"passed": False}},
+        {"model_name": "Synthetic DVR Disk", "smart_status": {"passed": False}},
         returncode=8,
         error="device reports SMART condition",
     )
