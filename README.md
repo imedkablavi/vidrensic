@@ -18,6 +18,8 @@ Acquire · Triage · Detect · Reconstruct · Validate · Audit
 
 **Recover what the recorder still contains without pretending uncertainty is certainty.**
 
+[Reproducible demo](docs/DEMO.md) · [Support matrix](docs/SUPPORT_MATRIX.md) · [Validation](docs/VALIDATION.md) · [Roadmap](docs/ROADMAP.md) · [Contributing](CONTRIBUTING.md)
+
 </div>
 
 <img src="docs/assets/vidrensic-hero.svg" width="100%" alt="Vidrensic forensic video platform">
@@ -46,6 +48,18 @@ Reconstruction strategy
 Validation + provenance
 ```
 
+## What makes it different
+
+Vidrensic is being designed around failure modes that make surveillance recovery difficult, not around a marketing list of recorder brands.
+
+- **Capability stages instead of a fake supported/not-supported flag.** A family can be detected or profiled without claiming validated recovery.
+- **Read-only evidence handling first.** Mounted or write-enabled block devices are rejected by default before parser work.
+- **Format + firmware variant awareness.** Vendor, filesystem, container, codec and timestamp evidence are kept separate.
+- **Ambiguity is evidence.** Competing fragment paths, uncertain camera mapping and incomplete timestamps remain explicit instead of being silently guessed.
+- **Native vs derived data stays separate.** Extracted native payloads, review derivatives, corrected time and cryptographic transforms carry their own provenance.
+- **Recovery is tested as an adversarial parser problem.** Bounds, malformed inputs, interrupted acquisition, races, corrupted metadata and packaging are part of CI.
+- **Public demo uses synthetic evidence.** A new contributor can exercise detection/recovery without downloading CCTV or trusting a screenshot.
+
 ### Design principles
 
 - **Read-only first.** Evidence block devices are rejected by default when write-enabled or mounted.
@@ -70,6 +84,16 @@ vidrensic --version
 vidrensic doctor
 vidrensic formats list
 ```
+
+### Try it without any real evidence
+
+```bash
+bash examples/run_demo.sh
+```
+
+The demo creates a deterministic synthetic DHAV-like recorder source, ranks format evidence, recovers 12 structurally valid frames into two physical channels and emits a manifest. It is covered by a regression test so the public demo cannot silently rot as parsers evolve.
+
+Full walkthrough: [`docs/DEMO.md`](docs/DEMO.md).
 
 Triage an unknown image without writing to it:
 
@@ -269,6 +293,7 @@ sdist + wheel build
 pip dependency checks
 fresh installation of the built wheel
 built-wheel smoke tests
+public synthetic demo regression
 ```
 
 See [`docs/VALIDATION.md`](docs/VALIDATION.md) for validation scope and release expectations.
@@ -287,8 +312,10 @@ vidrensic/
 ├── plugins/           WFS, DHAV, Hikvision, Annex-B, MPEG-PS
 └── recovery/          graph + global solver foundations
 
-docs/                  architecture, forensic policy, support, validation
-.github/                CI, issue forms and contribution workflow
+examples/              deterministic synthetic public demo
+docs/                  architecture, policy, support, demo, validation
+.github/                CI, issue forms, ownership and contribution workflow
+CITATION.cff            citation metadata for research/tool references
 ```
 
 ## Forensic safety rules
@@ -308,7 +335,11 @@ docs/                  architecture, forensic policy, support, validation
 
 High-value contributions include parser fixtures, corruption cases, format documentation, test vectors, safety hardening and reproducible bug reports. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+Have a recorder/firmware variant Vidrensic does not understand yet? Use the **New DVR / NVR format request** issue form and read [`docs/SAMPLE_SUBMISSION.md`](docs/SAMPLE_SUBMISSION.md) before sharing any sample material. Never upload active-case CCTV, credentials or cryptographic keys to a public issue.
+
 Security issues should follow [`SECURITY.md`](SECURITY.md), not a public issue.
+
+Research users can cite the project through [`CITATION.cff`](CITATION.cff); once that file is present on the public default branch GitHub can expose its citation metadata directly.
 
 If Vidrensic is useful to your research or lab work, a GitHub star helps other practitioners discover the project.
 
@@ -335,6 +366,8 @@ Project owner / lead developer: [`@imedkablavi`](https://github.com/imedkablavi)
 Copyright © 2026 imedkablavi. All rights reserved.
 
 Vidrensic is proprietary software. Repository visibility does not grant permission to redistribute, sublicense, sell, publish, host or incorporate the source into another product. See [`LICENSE`](LICENSE), [`NOTICE.md`](NOTICE.md) and [`AUTHORS.md`](AUTHORS.md).
+
+Public launch settings and owner-only decisions are tracked in [`docs/PUBLIC_LAUNCH.md`](docs/PUBLIC_LAUNCH.md).
 
 ---
 
