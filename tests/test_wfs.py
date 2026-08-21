@@ -122,10 +122,13 @@ def test_high_level_recovery_uses_evidence_driven_hevc_extension(tmp_path: Path)
     assert len(candidates) == 1
     assert candidates[0].status == "UNKNOWN"
     assert candidates[0].codec_hint == "hevc"
+    assert candidates[0].reconstruction_strategy == "local"
     assert candidates[0].native_output.suffix == ".h265"
     assert candidates[0].native_output.read_bytes() == payload
     data = json.loads(manifest.read_text(encoding="utf-8"))
-    assert data["schema_version"] == 2
+    assert data["schema_version"] == 3
+    assert data["reconstruction_strategy"] == "local"
+    assert data["global_solution"] is None
     assert data["candidates"][0]["status"] == "UNKNOWN"
     assert data["candidates"][0]["codec_hint"] == "hevc"
 
