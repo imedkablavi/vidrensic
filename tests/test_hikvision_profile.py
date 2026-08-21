@@ -56,7 +56,7 @@ def test_hikvision_is_registered_but_date_scan_fails_closed(tmp_path: Path, caps
     assert report.best.plugin == "hikvision"
     assert not report.requires_review
 
-    code = main(["scan", str(source), "--date", "2026-08-09"])
+    code = main(["scan", str(source), "--date", "2030-01-02"])
     assert code == 4
     captured = capsys.readouterr()
     assert "DATE_SCAN is not implemented" in captured.err
