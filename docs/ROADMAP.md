@@ -1,10 +1,8 @@
 # Vidrensic Engineering Roadmap
 
-This roadmap is ordered by forensic dependency, not by visual appeal. A feature is
-not considered production-ready until it has regression fixtures and documented
-failure behavior.
+This roadmap is ordered by forensic dependency, not by visual appeal. A feature is not considered production-ready until it has regression fixtures, bounded failure behavior and validation evidence matching the claim.
 
-## Phase A — Forensic foundation ✅ / active
+## Phase A — Forensic foundation ✅
 
 - [x] Independent repository and product identity
 - [x] Proprietary ownership/license notices
@@ -13,83 +11,104 @@ failure behavior.
 - [x] SHA-256/SHA-512 hashing
 - [x] Linux block-source inspection
 - [x] Read-only/mount safety checks
-- [x] Selective ddrescue planning and execution
-- [x] Plugin protocol/registry
-- [x] CI and synthetic unit-test foundation
+- [x] Selective/full ddrescue planning and execution
+- [x] ddrescue map parsing and acquisition receipts
+- [x] source identity/provenance models
+- [x] plugin protocol/registry
+- [x] CI + Security automation
 
-Exit criteria:
-
-- case/audit tamper tests pass;
-- unsafe acquisition states are rejected;
-- CLI behavior is deterministic across supported Python versions.
-
-## Phase B — WFS plugin migration 🧪
+## Phase B — WFS reconstruction 🧪
 
 - [x] WFS timestamp codec
 - [x] WFS record framing parser
-- [x] Date/hour start-boundary scanner
-- [x] Conservative multi-stream fragment reconstruction
-- [x] Native HEVC packet extraction
-- [ ] Data-base-offset discovery/profile detection
-- [ ] Recording-boundary successor model
-- [ ] Exact expected-duration calculation from neighboring timestamps
-- [ ] Packet-rate QC migration
-- [ ] scene discontinuity QC migration
-- [ ] full decode QC migration
-- [ ] reconstruction manifest schema
-- [ ] known-good Day 7/Day 8 regression manifests
+- [x] date/hour start-boundary scanner
+- [x] conservative local multi-stream reconstruction
+- [x] codec-neutral H.264/H.265/ES native extraction
+- [x] reconstruction manifest with ambiguity/unresolved evidence
+- [x] path-dependent carry/tail hypothesis enumeration
+- [x] global physical-fragment-disjoint selection
+- [x] second-best / bounded-search ambiguity evidence
+- [x] regression for physical-fragment-boundary continuation probing
+- [ ] absolute data-base-offset discovery with corroborating metadata evidence
+- [ ] recording-boundary successor/time model
+- [ ] packet-rate and timestamp continuity evidence integrated into global path cost
+- [ ] decoder/keyframe evidence integrated into reconstruction confidence
+- [ ] real multi-recorder/firmware validation corpus
+- [ ] frame/NAL/GOP-level partial-overwrite salvage
 
-Exit criteria:
+Exit criteria for higher maturity:
 
-- WFS-5.0 known recovery cases can be reproduced without changing source output
-  semantics;
-- every ambiguity currently visible in WFS-5.0 remains visible or gains stronger
-  evidence;
-- no physical fragment is silently reused between simultaneous camera chains.
+- known real WFS fixtures are reproducible from hashes and declared geometry;
+- local/global differences are explainable from recorded evidence;
+- no physical fragment is silently reused across simultaneous selected chains;
+- bounded/truncated global searches remain REVIEW rather than fake optimum/PASS;
+- partially overwritten cases produce explicit salvage/corruption maps.
 
 ## Phase C — Evidence acquisition workstation
 
-- [ ] `vidrensic acquire` case-aware job object
-- [ ] capture source identity: model, serial, firmware, geometry
-- [ ] SMART snapshot import
-- [ ] GNU ddrescue version capture
-- [ ] free-space preflight with sparse-image awareness
-- [ ] resume/restart checkpoint database
-- [ ] acquisition progress API
-- [ ] bad/unreadable range summary
-- [ ] whole-device and selective-range acquisition profiles
-- [ ] source + acquisition hash manifests
-- [ ] safe image splitting for target filesystem limits
+- [x] case-aware acquisition jobs
+- [x] source identity capture foundation
+- [x] SMART snapshot support
+- [x] GNU ddrescue planning/map/resume
+- [x] free-space preflight and FAT32 single-file checks
+- [x] acquisition receipt and hashes
+- [ ] acquisition progress API/UI
+- [ ] safe automatic image splitting where the target filesystem requires it
+- [ ] interruption/kill/resume stress corpus
+- [ ] bad-sector simulator and repeatable acquisition failure tests
 
-## Phase D — Global reconstruction solver
+## Phase D — Global reconstruction solver 🧪
 
-Replace the bounded WFS local assignment with a weighted graph model.
+### Generic solver
 
-Candidate edge evidence:
+- [x] node-disjoint path foundation
+- [x] global competing-start optimization
+- [x] alternative-solution margin
+- [x] deterministic regression fixtures
 
-- exact carried-record completion;
-- valid record at join boundary;
-- packet/NAL validity;
-- SPS/PPS/VPS compatibility;
-- proprietary timestamp continuity;
-- packet-rate continuity;
-- decoder continuity;
-- physical gap;
-- neighboring segment continuity;
-- optional visual fingerprint similarity.
+### WFS-specific path-dependent solver
 
-Constraints:
+- [x] preserve branch-specific carry/tail state
+- [x] bounded beam hypothesis enumeration
+- [x] global disjoint hypothesis selection across simultaneous starts
+- [x] explicit combination search cap and truncation flag
+- [ ] branch-and-bound upper/lower pruning for large candidate sets
+- [ ] adaptive beam budgets based on evidence quality
+- [ ] packet/NAL/timestamp/decoder continuity scoring
+- [ ] performance and memory benchmarks on multi-terabyte cases
+- [ ] independent real-recorder validation
 
-- one physical fragment cannot belong to two simultaneous recovered streams;
-- hard-invalid structural edges are never rescued by a soft score;
-- solver uncertainty must be reported, not collapsed into a fake PASS.
+Hard constraints:
 
-## Phase E — Media validation engine
+- one physical fragment cannot belong to two selected simultaneous streams;
+- hard-invalid structural continuations are never rescued by a soft score;
+- path-dependent WFS state is never collapsed into a false context-free edge;
+- search bounds and uncertainty are written into the manifest.
 
-- [ ] native stream inventory
-- [ ] ffprobe schema persistence
-- [ ] full decode worker
-- [ ] three-point fast validation
+## Phase E — Validation corpus and QA 🧪
+
+- [x] versioned machine-readable corpus schema
+- [x] provenance + redistributability metadata
+- [x] source SHA-256 ground truth
+- [x] expected-vs-actual report
+- [x] `source_hash`, `format_detect`, `wfs_recover` expectation types
+- [x] path traversal and symlink rejection
+- [x] editable-build corpus smoke
+- [x] installed-wheel corpus smoke
+- [x] overall coverage floor raised from 70% to 80%
+- [x] separate critical-module coverage gates
+- [ ] public/legal real recorder fixtures
+- [ ] intentionally corrupted real/synthetic recorder corpus
+- [ ] performance/memory qualification corpus
+- [ ] independent rerun report from a separate examiner/lab
+
+See `VALIDATION.md` and `VALIDATION_CORPUS.md`.
+
+## Phase F — Media validation engine
+
+- [ ] native stream inventory persistence
+- [x] ffprobe probing foundation
+- [x] fast/full decode QC foundations
 - [ ] keyframe index
 - [ ] PTS/DTS anomaly map
 - [ ] decoder error regions
@@ -100,9 +119,9 @@ Constraints:
 - [ ] remux-first repair workflow
 - [ ] controlled transcode proxy workflow
 
-## Phase F — Review workstation
+## Phase G — Review workstation
 
-Primary review UX:
+Primary review UX target:
 
 ```text
 ┌───────────────────────────────────────────────────────────┐
@@ -120,39 +139,44 @@ Primary review UX:
 └───────────────────────────────────────────────────────────┘
 ```
 
-- [ ] sticky preview with no page jump
-- [ ] hour/date filters
-- [ ] camera/candidate filters
+- [ ] sticky preview
+- [ ] hour/date/candidate filters
 - [ ] synchronized matrix view
-- [ ] thumbnail strip/contact sheet
-- [ ] frame stepping
-- [ ] playback-speed controls
+- [ ] thumbnail/contact-sheet strip
+- [ ] frame stepping and playback-speed controls
 - [ ] seek watchdog/reload-position recovery
 - [ ] bookmarks and analyst notes
-- [ ] KEEP semantics
-- [ ] reviewed-hour state
-- [ ] safe derived-copy deletion plan
-- [ ] plan ID bound to file identity and selection state
+- [ ] KEEP/review state
+- [ ] safe derived-copy deletion plans bound to file identity
 - [ ] deletion audit/tombstones
 
-## Phase G — Unknown DVR/NVR profiler
+## Phase H — Unknown DVR/NVR profiler
 
-A profiler should collect a small, privacy-conscious technical sample for formats
-that lack a plugin.
-
-- [ ] disk geometry/layout summary
-- [ ] entropy and repeating-block map
-- [ ] filesystem/signature candidates
-- [ ] video start-code/codec signatures
-- [ ] timestamp-pattern candidates
-- [ ] fragment-size hypotheses
-- [ ] sample extraction with explicit byte ranges
-- [ ] anonymized profiler bundle
-- [ ] profile SDK documentation
+- [x] bounded source samples
+- [x] entropy/signature evidence
+- [x] storage/partition profiling
+- [x] physical signature hit maps
+- [x] ranked format-family detection
+- [x] WFS fragment-alignment hypotheses
+- [ ] absolute proprietary data-area discovery with corroborating evidence
+- [ ] anonymized profiler bundle format
+- [ ] profile/plugin SDK documentation
 
 The profiler must never silently upload evidence.
 
-## Phase H — Deleted and partially overwritten recovery
+## Phase I — Additional recorder families
+
+- [ ] Hikvision HIKBTREE/data-block variants
+- [ ] WFH 1/2/3/4
+- [ ] IFS family variants
+- [ ] Stream / Stream_db
+- [ ] TangoMagic
+- [ ] additional DHFS/DHAV variants
+- [ ] TDFS/BJPEG/JDAT/Milefs and other field-observed families
+
+No family is promoted from a research target merely because its name or signature is known.
+
+## Phase J — Deleted and partially overwritten recovery
 
 - [ ] orphan recording-start discovery
 - [ ] unindexed fragment sets
@@ -161,48 +185,54 @@ The profiler must never silently upload evidence.
 - [ ] frame/NAL-level salvage mode
 - [ ] partial GOP recovery
 - [ ] corruption intervals in exported report
-- [ ] confidence score separated from playable duration
+- [ ] confidence separated from playable duration
 
-## Phase I — Evidence export & reporting
+## Phase K — Multi-disk and forensic image formats
+
+- [x] file/JBOD/RAID0 random-access foundation with supplied geometry
+- [ ] RAID0 geometry discovery/validation
+- [ ] RAID5/6 parity reconstruction
+- [ ] E01/Ex01 adapter with independent verification
+- [ ] AFF4 adapter with independent verification
+- [ ] multi-disk recorder profile hypotheses
+
+## Phase L — Evidence export & reporting
 
 - [ ] forensic-master export profile
 - [ ] review-copy export profile
 - [ ] hashes for every exported artifact
 - [ ] provenance graph
 - [ ] signed manifest option
-- [ ] HTML report
-- [ ] PDF report
+- [ ] HTML/PDF technical reports
 - [ ] chain-of-custody summary
 - [ ] examiner notes/bookmarks export
 - [ ] external review index
-- [ ] FAT32/exFAT/NTFS target capability checks
 
-## Phase J — Commercial hardening
+## Phase M — Commercial hardening
 
-- [ ] structured logging
-- [ ] SQLite job/state schema with migrations
-- [ ] crash-safe transactions
-- [ ] fuzz testing for proprietary parsers
-- [ ] synthetic corruption corpus
-- [ ] performance benchmarks
-- [ ] memory and file-descriptor stress tests
-- [ ] packaged Linux releases
+- [ ] structured logging and schema migrations
+- [ ] crash-safe transaction review
+- [ ] deeper fuzz/property testing for proprietary parsers
+- [ ] performance and file-descriptor stress tests
+- [ ] packaged Linux application/workstation
 - [ ] signed release artifacts
 - [ ] reproducible build documentation
 - [ ] SBOM generation
 - [ ] dependency/license inventory
 - [ ] security threat model
-- [ ] validation handbook
-- [ ] operator SOP
+- [ ] validation handbook and operator SOP
 - [ ] plugin developer SDK
 
 ## Validation gates
 
-A feature may move to `PASS-capable` only when:
+A feature may move to `PASS`-capable or `VALIDATE` maturity only when the scope of the claim has matching evidence:
 
 1. known-good fixtures pass;
-2. intentionally corrupted fixtures produce the expected REVIEW/FAIL result;
+2. intentionally corrupted fixtures produce expected REVIEW/FAIL behavior;
 3. failure does not modify evidence;
-4. parameters required to reproduce the output are recorded;
+4. parameters required to reproduce output are recorded;
 5. derived timestamps/media are distinguishable from native evidence;
-6. documented limitations match actual behavior.
+6. source/fixture hashes are recorded;
+7. documented limitations match actual behavior;
+8. real-device claims are backed by real-device fixtures for declared variants;
+9. independent rerun evidence exists where independent validation is claimed.
