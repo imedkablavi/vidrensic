@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import pytest
+
+import vidrensic.plugins.wfs.global_reconstruct as global_wfs
 from vidrensic.plugins.wfs.global_reconstruct import (
     WFSPathHypothesis,
+    enumerate_path_hypotheses,
     select_global_hypotheses,
 )
+from vidrensic.plugins.wfs.reconstruct import WFSChain
 
 
 def _h(start: int, fragments: tuple[int, ...], cost: float, *, unresolved: int = 0):
@@ -79,9 +84,88 @@ def test_global_selection_marks_bounded_search_truncation() -> None:
 
 def test_global_selection_rejects_start_mismatch() -> None:
     bad = {1: (_h(2, (2,), 0.0),)}
-    try:
+    with pytest.raises(ValueError, match="mismatch"):
         select_global_hypotheses(bad)
-    except ValueError as exc:
-        assert "mismatch" in str(exc)
-    else:
-        raise AssertionError("expected mismatched hypothesis start to be rejected")
+
+
+def test_path_enumerator_preserves_branch_specific_carry_state(monkeypatch) -> None:
+    monkeypatch.setattr(
+        global_wfs,
+        "init_chain",
+        lambda *args, **kwargs: WFSChain(1, 1, [1], b"seed", True),
+    )
+
+    observed_tails: list[tuple[int, bytes | None]] = []
+
+    def fake_candidates(fd, state, used, stop_fragment, **kwargs):
+        observed_tails.append((state.current_fragment, state.tail))
+        if state.current_fragment == 1:
+            return [(1.0, 3, b"carry-a"), (2.0, 4, b"carry-b")]
+        if state.current_fragment == 3:
+            assert state.tail == b"carry-a"
+            return [(1.0, 5, None)]
+        if state.current_fragment == 4:
+            assert state.tail == b"carry-b"
+            return []
+        return []
+
+    monkeypatch.setattr(global_wfs, "candidate_list", fake_candidates)
+    result = enumerate_path_hypotheses(
+        99,
+        1,
+        10,
+        near=2,
+        far=8,
+        beam_width=8,
+        max_depth=8,
+    )
+    paths = {item.fragments: item for item in result}
+    assert (1, 3, 5) in paths
+    assert paths[(1, 3, 5)].terminal_reason == "terminal-padding"
+    assert (1, 4) in paths
+    assert paths[(1, 4)].unresolved_steps == 1
+    assert (3, b"carry-a") in observed_tails
+    assert (4, b"carry-b") in observed_tails
+
+
+def test_path_enumerator_reports_invalid_or_terminal_start(monkeypatch) -> None:
+    monkeypatch.setattr(
+        global_wfs,
+        "init_chain",
+        lambda *args, **kwargs: WFSChain(2, 2, [2], None, False, unresolved_steps=0),
+    )
+    result = enumerate_path_hypotheses(1, 2, 3)
+    assert result[0].fragments == (2,)
+    assert result[0].terminal_reason == "terminal-padding"
+
+
+def test_path_enumerator_marks_max_depth(monkeypatch) -> None:
+    monkeypatch.setattr(
+        global_wfs,
+        "init_chain",
+        lambda *args, **kwargs: WFSChain(1, 1, [1], b"seed", True),
+    )
+
+    def endless(fd, state, used, stop_fragment, **kwargs):
+        return [(1.0, state.current_fragment + 1, b"next")]
+
+    monkeypatch.setattr(global_wfs, "candidate_list", endless)
+    result = enumerate_path_hypotheses(1, 1, 20, max_depth=1)
+    assert result[0].terminal_reason == "max-depth"
+    assert result[0].unresolved_steps == 1
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"start_fragment": -1, "stop_fragment": 2},
+        {"start_fragment": 1, "stop_fragment": 1},
+        {"start_fragment": 1, "stop_fragment": 2, "near": 0},
+        {"start_fragment": 1, "stop_fragment": 2, "candidate_top": 17},
+        {"start_fragment": 1, "stop_fragment": 2, "beam_width": 0},
+        {"start_fragment": 1, "stop_fragment": 2, "max_hypotheses": 0},
+    ],
+)
+def test_path_enumerator_rejects_invalid_bounds(kwargs) -> None:
+    with pytest.raises(ValueError):
+        enumerate_path_hypotheses(1, **kwargs)
