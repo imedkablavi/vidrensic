@@ -95,15 +95,19 @@ def _contained_file(root: Path, relative: str) -> Path:
     candidate = Path(relative)
     if candidate.is_absolute():
         raise CorpusError("corpus source paths must be relative to the manifest directory")
-    resolved = (root / candidate).resolve()
+
+    unresolved = root / candidate
+    # Check the directory entry before resolve(); Path.resolve() dereferences a
+    # symlink and would otherwise make the later safety check ineffective.
+    if unresolved.is_symlink():
+        raise CorpusError(f"corpus source may not be a symlink: {relative}")
+    resolved = unresolved.resolve()
     try:
         resolved.relative_to(root)
     except ValueError as exc:
         raise CorpusError(f"corpus source escapes manifest directory: {relative}") from exc
     if not resolved.exists() or not resolved.is_file():
         raise CorpusError(f"corpus source does not exist as a regular file: {relative}")
-    if resolved.is_symlink():
-        raise CorpusError(f"corpus source may not be a symlink: {relative}")
     return resolved
 
 
