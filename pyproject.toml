@@ -24,7 +24,7 @@ classifiers = [
   "Topic :: Security",
 ]
 dependencies = [
-  "cryptography>=43,<47",
+  "cryptography>=43,<51",
 ]
 
 [project.optional-dependencies]
