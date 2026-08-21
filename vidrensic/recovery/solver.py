@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import inf
-from typing import Callable
 
 from vidrensic.recovery.graph import ContinuationEdge, ReconstructionGraph
 
@@ -113,7 +112,6 @@ def _solve_once(
     )
     in_index: dict[str, int] = {}
     out_index: dict[str, int] = {}
-    # node 0 = super source, node 1 = super sink
     next_index = 2
     for node_id in ordered_ids:
         in_index[node_id] = next_index
@@ -126,14 +124,11 @@ def _solve_once(
     starts = set(start_ids)
     for node_id in ordered_ids:
         _add_edge(network, in_index[node_id], out_index[node_id], 1, 0.0)
-        # Any path may stop after a node at zero incremental cost. Positive
-        # continuation benefit therefore has to justify extending the path.
         _add_edge(network, out_index[node_id], sink, 1, 0.0)
 
     for start_id in start_ids:
         _add_edge(network, source, in_index[start_id], 1, 0.0)
 
-    accepted_edges: list[ContinuationEdge] = []
     for source_id in ordered_ids:
         source_node = graph.nodes[source_id]
         for edge in graph.candidates(source_id):
@@ -146,9 +141,6 @@ def _solve_once(
             target_node = graph.nodes[edge.target_id]
             if enforce_monotonic and target_node.physical_index <= source_node.physical_index:
                 continue
-            # Existing graph score is a lower-is-better cost. Convert it into a
-            # reward relative to a caller-selected acceptance threshold. Edges at
-            # or above the threshold do not improve the objective and are omitted.
             benefit = continuation_reward - edge.score
             if benefit <= 0:
                 continue
@@ -160,7 +152,6 @@ def _solve_once(
                 -benefit,
                 original=edge,
             )
-            accepted_edges.append(edge)
 
     sent = 0
     objective_cost = 0.0
@@ -255,14 +246,7 @@ def solve_node_disjoint_paths(
     compute_alternative_margin: bool = True,
     max_margin_edges: int = 64,
 ) -> GlobalSolveResult:
-    """Select globally optimal node-disjoint continuation paths.
-
-    The graph's `ContinuationEdge.score` is treated as a lower-is-better cost.
-    A continuation contributes `continuation_reward - score` benefit. This keeps
-    weak edges from being selected simply to make paths longer and makes the
-    acceptance scale an explicit profile parameter rather than a hidden magic
-    constant.
-    """
+    """Select globally optimal node-disjoint continuation paths."""
 
     starts = tuple(start_ids)
     best = _solve_once(
@@ -275,21 +259,20 @@ def solve_node_disjoint_paths(
     )
 
     margin: float | None = None
-    if compute_alternative_margin and best.selected_edges:
-        if len(best.selected_edges) <= max_margin_edges:
-            alternatives: list[float] = []
-            for edge in best.selected_edges:
-                alternate = _solve_once(
-                    graph,
-                    starts,
-                    continuation_reward=continuation_reward,
-                    max_edge_cost=max_edge_cost,
-                    excluded_edges=frozenset({(edge.source_id, edge.target_id)}),
-                    enforce_monotonic=enforce_monotonic,
-                )
-                alternatives.append(best.total_benefit - alternate.total_benefit)
-            nonnegative = [max(0.0, value) for value in alternatives]
-            margin = min(nonnegative) if nonnegative else None
+    if compute_alternative_margin and best.selected_edges and len(best.selected_edges) <= max_margin_edges:
+        alternatives: list[float] = []
+        for edge in best.selected_edges:
+            alternate = _solve_once(
+                graph,
+                starts,
+                continuation_reward=continuation_reward,
+                max_edge_cost=max_edge_cost,
+                excluded_edges=frozenset({(edge.source_id, edge.target_id)}),
+                enforce_monotonic=enforce_monotonic,
+            )
+            alternatives.append(best.total_benefit - alternate.total_benefit)
+        nonnegative = [max(0.0, value) for value in alternatives]
+        margin = min(nonnegative) if nonnegative else None
 
     return GlobalSolveResult(
         paths=best.paths,
