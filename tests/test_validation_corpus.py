@@ -110,6 +110,35 @@ def test_corpus_rejects_path_escape(tmp_path: Path) -> None:
         load_corpus(manifest)
 
 
+def test_corpus_rejects_symlink_even_when_target_is_inside_root(tmp_path: Path) -> None:
+    target = tmp_path / "real.bin"
+    target.write_bytes(b"real")
+    link = tmp_path / "link.bin"
+    try:
+        link.symlink_to(target.name)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable on this platform")
+    manifest = _write_manifest(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "corpus_id": "symlink",
+            "cases": [
+                {
+                    "case_id": "symlink-001",
+                    "source": "link.bin",
+                    "family": "generic",
+                    "provenance": "lab",
+                    "redistributable": False,
+                    "expectations": [{"kind": "source_hash", "expected": {}}],
+                }
+            ],
+        },
+    )
+    with pytest.raises(CorpusError, match="symlink"):
+        load_corpus(manifest)
+
+
 def test_corpus_executes_global_wfs_recovery_expectation(tmp_path: Path) -> None:
     source = tmp_path / "wfs.raw"
     source.write_bytes(_hevc_wfs_fragment())
@@ -177,3 +206,17 @@ def test_unsupported_expectation_is_reported_not_crashed(tmp_path: Path) -> None
     assert report.status == "FAIL"
     assert report.cases[0].expectations[0].status == "ERROR"
     assert "unsupported" in report.cases[0].expectations[0].reasons[0]
+
+
+@pytest.mark.parametrize(
+    "data,match",
+    [
+        ({"schema_version": 2, "corpus_id": "x", "cases": []}, "schema_version"),
+        ({"schema_version": 1, "corpus_id": "", "cases": []}, "corpus_id"),
+        ({"schema_version": 1, "corpus_id": "x", "cases": []}, "at least one case"),
+    ],
+)
+def test_corpus_rejects_invalid_top_level_schema(tmp_path: Path, data: dict, match: str) -> None:
+    manifest = _write_manifest(tmp_path, data)
+    with pytest.raises(CorpusError, match=match):
+        load_corpus(manifest)
