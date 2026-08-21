@@ -32,19 +32,29 @@ jobs:
           python -m pip check
 
       - name: Ruff
-        run: ruff check vidrensic tests
+        run: ruff check vidrensic tests scripts
 
       - name: Compile all Python modules
-        run: python -m compileall -q vidrensic tests
+        run: python -m compileall -q vidrensic tests scripts
 
       - name: Unit and synthetic tests
         if: matrix.python-version != '3.12'
         run: pytest
 
-      - name: Unit tests with coverage gate
+      - name: Unit tests with coverage report
         if: matrix.python-version == '3.12'
         run: |
-          pytest --cov=vidrensic --cov-report=term-missing --cov-report=xml --cov-fail-under=70
+          pytest --cov=vidrensic --cov-report=term-missing --cov-report=xml
+
+      - name: Overall and critical forensic coverage gate
+        if: matrix.python-version == '3.12'
+        run: python scripts/check_critical_coverage.py coverage.xml --overall 80
+
+      - name: Public validation corpus smoke test
+        if: matrix.python-version == '3.12'
+        run: |
+          vidrensic validate corpus validation_corpus/corpus.json --out validation-report.json
+          python -c "import json; r=json.load(open('validation-report.json')); assert r['status'] == 'PASS'"
 
       - name: CLI smoke test
         run: |
@@ -54,7 +64,7 @@ jobs:
           vidrensic formats list
 
       - name: Package import smoke test
-        run: python -c "import vidrensic; import vidrensic.crypto; print(vidrensic.__version__)"
+        run: python -c "import vidrensic; import vidrensic.crypto; import vidrensic.validation; print(vidrensic.__version__)"
 
       - name: Build source and wheel distributions
         if: matrix.python-version == '3.12'
@@ -67,13 +77,17 @@ jobs:
           python -m pip install --force-reinstall dist/*.whl
           python -m pip check
           vidrensic --version
+          vidrensic validate corpus validation_corpus/corpus.json --out wheel-validation-report.json
           python -c "from vidrensic.crypto import KeyMaterial; print(KeyMaterial(b'0' * 16).fingerprint_sha256[:8])"
 
-      - name: Upload coverage artifact
+      - name: Upload coverage and validation artifacts
         if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@v7
         with:
-          name: coverage-${{ github.sha }}
-          path: coverage.xml
+          name: qa-${{ github.sha }}
+          path: |
+            coverage.xml
+            validation-report.json
+            wheel-validation-report.json
           if-no-files-found: error
           retention-days: 14

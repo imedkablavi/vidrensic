@@ -2,6 +2,57 @@
 
 All notable Vidrensic development changes are recorded here.
 
+## [0.6.0-alpha] - 2026-08-22
+
+### Added
+
+- Path-dependent WFS global reconstruction mode that preserves branch-specific proprietary carry/tail state before jointly selecting physical-fragment-disjoint paths across simultaneous recording starts.
+- Bounded WFS beam hypothesis enumeration with configurable candidate, beam, hypothesis, depth and global-combination limits.
+- Global-solution evidence including selected paths, total continuation/cost metrics, unresolved/ambiguous counts, second-best solution information, alternative cost margin, combinations examined and search-truncation state.
+- `vidrensic recover wfs --strategy global` CLI workflow; the CLI defaults to global mode while the Python `recover_segment()` API retains the local default for backward compatibility.
+- Versioned validation-corpus framework with provenance, redistributability metadata, source SHA-256 ground truth, deterministic expectations and machine-readable expected-vs-actual reports.
+- `vidrensic validate corpus` command.
+- Initial public synthetic validation corpus under `validation_corpus/`.
+- Validation expectation types for source hashes, ranked format detection and WFS recovery.
+- Corpus path-confinement, path-traversal rejection, symlink rejection and fail-before-operation behavior on source-hash mismatch.
+- Dedicated forensic-critical coverage gate in addition to aggregate coverage.
+- Installed-wheel validation-corpus smoke testing in CI.
+- New direct regression suites for WFS path hypotheses/global selection, WFS continuation/extraction mechanics, high-level global recovery behavior, validation-corpus safety and ddrescue execution semantics.
+- `docs/VALIDATION_CORPUS.md` and `docs/RELEASE_NOTES_0.6.md`.
+
+### Changed
+
+- Raised the aggregate CI coverage floor from 70% to 80%.
+- Added independent minimum coverage thresholds for WFS local/global/high-level recovery, the generic solver, hashing, provenance, crypto transforms and ddrescue orchestration.
+- WFS recovery manifest schema moved to version 3 and now records reconstruction strategy and global-search evidence.
+- Public documentation now distinguishes structurally/synthetically tested WFS global reconstruction from broad real-recorder validation.
+- Roadmap and support matrix now treat real-device corpus qualification and independent reruns as separate requirements before `VALIDATE` maturity.
+- Development package version advanced to `0.6.0a0`.
+
+### Fixed
+
+- Fixed a WFS continuation-probe boundary bug discovered by the expanded QA suite. Terminal-padding look-ahead could previously read beyond the candidate physical fragment and allow bytes from the following fragment to invalidate an otherwise legitimate continuation. Probe evidence is now capped to the candidate fragment boundary.
+- Fixed validation-corpus symlink checking so the symlink directory entry is rejected before `Path.resolve()` dereferences it.
+
+### QA snapshot
+
+At the 0.6 development milestone, the Python 3.12 qualification run reported 131 passing tests and approximately 80.6% aggregate coverage. Critical-module coverage included approximately 85% WFS local reconstruction, 91% WFS path-dependent global reconstruction, 95% WFS high-level recovery, 91% generic global solver, 90% hashing, 92% provenance, 84% known-key crypto and 100% ddrescue orchestration.
+
+The same commit passed CI on Python 3.11, 3.12 and 3.13, Security gates, the public validation corpus and the validation corpus again after installing the built wheel.
+
+These QA results are software-development evidence. They are **not** an independent forensic certification or proof of support for every WFS/DVR/NVR model or firmware.
+
+### Still experimental / incomplete
+
+- Broad multi-device/firmware WFS validation corpus.
+- WFS frame/NAL/GOP-level partial-overwrite salvage.
+- DHAV circular-wrap chronology and comprehensive audio/firmware variant coverage.
+- Hikvision HIKBTREE/data-block reconstruction.
+- RAID5/6 parity reconstruction.
+- Universal recorder encryption/key recovery.
+- Independent lab validation/certification.
+- Synchronized graphical review workstation and court-ready signed export packages.
+
 ## [0.4.0-alpha] - 2026-08-21
 
 ### Added

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "corpus_id": "vidrensic-public-synthetic-v1",
+  "description": "Redistributable synthetic validation cases for corpus-runner and release smoke testing. Real recorder validation is tracked separately and must carry explicit provenance/ground truth.",
+  "cases": [
+    {
+      "case_id": "public-hash-fixture-v1",
+      "source": "synthetic/hash-fixture.txt",
+      "family": "generic",
+      "provenance": "synthetic",
+      "redistributable": true,
+      "source_sha256": "32d52a020478b13a7612402825ce5737604555ee614bc9c7bd2ca13fead1ed72",
+      "expectations": [
+        {
+          "kind": "source_hash",
+          "expected": {
+            "sha256": "32d52a020478b13a7612402825ce5737604555ee614bc9c7bd2ca13fead1ed72"
+          }
+        }
+      ],
+      "notes": [
+        "This fixture validates corpus provenance/hash mechanics only; it is not evidence of recorder-format support."
+      ]
+    }
+  ]
+}

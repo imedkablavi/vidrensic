@@ -10,22 +10,22 @@ Acquire · Triage · Detect · Reconstruct · Validate · Audit
 
 [![CI](https://github.com/imedkablavi/vidrensic/actions/workflows/ci.yml/badge.svg)](https://github.com/imedkablavi/vidrensic/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/imedkablavi/vidrensic?include_prereleases&sort=semver)](https://github.com/imedkablavi/vidrensic/releases)
-![Version](https://img.shields.io/badge/package-0.5.0a0-2563eb)
+![Version](https://img.shields.io/badge/package-0.6.0a0-2563eb)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-Linux-111827?logo=linux)
-![Coverage gate](https://img.shields.io/badge/coverage%20gate-70%25-16a34a)
+![Coverage gate](https://img.shields.io/badge/coverage%20gate-80%25-16a34a)
 ![License](https://img.shields.io/badge/license-Proprietary-b91c1c)
 [![Stars](https://img.shields.io/github/stars/imedkablavi/vidrensic?style=flat&logo=github)](https://github.com/imedkablavi/vidrensic/stargazers)
 
 **Recover what the recorder still contains without pretending uncertainty is certainty.**
 
-[Demo](docs/DEMO.md) · [Support matrix](docs/SUPPORT_MATRIX.md) · [Validation](docs/VALIDATION.md) · [Roadmap](docs/ROADMAP.md) · [Contributing](CONTRIBUTING.md)
+[Demo](docs/DEMO.md) · [Support matrix](docs/SUPPORT_MATRIX.md) · [Validation](docs/VALIDATION.md) · [Validation corpus](docs/VALIDATION_CORPUS.md) · [Roadmap](docs/ROADMAP.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
 <img src="docs/assets/vidrensic-hero.svg" width="100%" alt="Vidrensic forensic video platform">
 
-> **Status — 0.5 alpha.** Vidrensic is under active forensic validation. It is not independently certified and must not be represented as a validated replacement for an organization’s required forensic procedures. Unsupported, ambiguous and unvalidated operations are deliberately surfaced instead of being hidden behind success-looking output.
+> **Status — 0.6 alpha development.** Vidrensic is under active forensic validation. It is not independently certified and must not be represented as a validated replacement for an organization’s required forensic procedures. Unsupported, ambiguous and unvalidated operations are deliberately surfaced instead of being hidden behind success-looking output.
 
 ## Why Vidrensic exists
 
@@ -55,8 +55,10 @@ Validation + provenance
 - **Read-only evidence handling first.** Mounted or write-enabled block devices are rejected by default before parser work.
 - **Format + firmware variant awareness.** Vendor branding, filesystem, container, codec and timestamp evidence are kept separate.
 - **Ambiguity stays visible.** Competing fragment paths, uncertain camera identity and missing timestamps are not silently guessed.
+- **Path-dependent reconstruction where the format requires it.** WFS continuation evidence carries state from the exact preceding path instead of pretending every fragment edge is context-free.
 - **Native and derived data stay separate.** Native payloads, review derivatives, corrected time and crypto transforms carry independent provenance.
 - **Recovery is treated as adversarial parsing.** Bounds, malformed input, interrupted acquisition, concurrency and corrupted metadata are part of QA.
+- **Validation ground truth is machine-readable.** Corpus cases can carry source hashes, provenance and deterministic expected results.
 - **A public demo needs no real CCTV.** The repository includes deterministic synthetic recorder data for repeatable testing.
 
 ## 60-second start
@@ -84,6 +86,15 @@ The demo creates a deterministic synthetic DHAV-like source, ranks format eviden
 
 Full walkthrough: [`docs/DEMO.md`](docs/DEMO.md).
 
+### Run the public ground-truth corpus
+
+```bash
+vidrensic validate corpus validation_corpus/corpus.json \
+  --out validation-report.json
+```
+
+The public corpus is intentionally synthetic. Passing it proves the declared synthetic expectations and corpus machinery; it does **not** prove universal real-recorder support.
+
 ## Core workflow
 
 ```text
@@ -101,7 +112,7 @@ reconstruction / native extraction
   ↓
 QC + provenance
   ↓
-review / export (roadmap)
+validation corpus / review / export
 ```
 
 Triage an unknown image without modifying it:
@@ -128,7 +139,7 @@ vidrensic formats list --json
 
 | Family | Stage | Implemented now | Explicit limitation |
 |---|---:|---|---|
-| **WFS** | `RECONSTRUCT` | detection, profiling, date scan, observed WFS framing, conservative local fragment-chain recovery, codec-neutral native extraction, QC hooks | WFS path-dependent global solving and frame-level partial-overwrite salvage remain incomplete |
+| **WFS** | `RECONSTRUCT` | detection, profiling, date scan, local reconstruction, experimental path-dependent global hypothesis solving, physical-fragment exclusion, codec-neutral native extraction | global mode is bounded and still requires broad real-recorder validation; frame/GOP-level partial-overwrite salvage remains incomplete |
 | **DHAV** | `RECONSTRUCT` | validated headers/footers, extension metadata, channel/frame/timestamp parsing, bounded streaming scan, physical-order channel demux, hashes | circular-wrap chronology and broader variant/audio validation remain incomplete |
 | **Hikvision proprietary** | `PROFILE` | `HIKVISION@HANGZHOU` Master Sector discovery and bounded geometry plausibility analysis | HIKBTREE/data-block recovery is not yet claimed |
 | **Annex-B H.264/H.265** | `PARSE` | NAL/parameter-set evidence and codec hints | raw NAL units do not prove recorder identity or wall-clock time |
@@ -201,7 +212,7 @@ vidrensic scan evidence.raw \
   --data-offset 67108864
 ```
 
-Recover one synthetic/example simultaneous boundary:
+Recover one synthetic/example simultaneous boundary with the path-dependent global strategy:
 
 ```bash
 vidrensic recover wfs evidence.raw \
@@ -209,10 +220,13 @@ vidrensic recover wfs evidence.raw \
   --stop-fragment 4096 \
   --out recovered/example-boundary \
   --label 2030-01-02_example \
-  --data-offset 67108864
+  --data-offset 67108864 \
+  --strategy global
 ```
 
-The values above are documentation examples, not a universal WFS geometry. Real offsets/start fragments must come from evidence and profiling.
+The CLI defaults to `--strategy global`; `--strategy local` remains available for regression comparison/backward compatibility. The values above are documentation examples, not a universal WFS geometry. Real offsets/start fragments must come from evidence and profiling.
+
+Global mode enumerates bounded path-dependent hypotheses per simultaneous start, then selects globally fragment-disjoint paths. The manifest records search bounds, ambiguity, second-best margin when available, and whether the global search was truncated. A truncated search is review evidence, not a proven optimum.
 
 Codec naming is evidence-driven. Strong H.264 parameter-set evidence produces `.h264`, strong HEVC evidence produces `.h265`, and uncertain elementary video remains `.es` with a review reason.
 
@@ -247,9 +261,14 @@ Recorder-native time and corrected/reference time are separate evidence classes.
 
 ## Reconstruction engine
 
-The format-neutral recovery layer includes a node-disjoint global solver foundation for competing fragment paths. It can optimize supplied graph hypotheses across multiple starts and estimate an alternative-solution margin.
+Vidrensic now has two related global-reconstruction layers:
 
-That does **not** mean every format automatically uses global solving. WFS still needs a validated path-dependent state graph before the global solver can replace all local continuation logic.
+- a format-neutral node-disjoint graph solver for supplied context-free hypotheses;
+- an experimental WFS-specific path-dependent layer that keeps carry/tail state for each beam hypothesis before joint physical-fragment selection.
+
+WFS cannot safely be reduced to a fixed edge graph because the validity of a candidate fragment can depend on the incomplete proprietary record carried from the complete preceding path. The WFS solver therefore preserves that state before global selection.
+
+This is a stronger reconstruction model, **not** a claim of universal WFS validation. Broad firmware/device corpus work and frame-level partial-overwrite salvage remain open.
 
 ## Validation states
 
@@ -260,30 +279,33 @@ That does **not** mean every format automatically uses global solving. WFS still
 | `FAIL` | Structural, decoding, timing or integrity evidence is strongly inconsistent |
 | `UNKNOWN` | Required validation has not run |
 
-Duration alone is never treated as a PASS.
+Duration alone is never treated as a PASS. Native extraction alone never creates PASS.
 
 ## QA and release gates
 
-Normal CI runs on Python 3.11, 3.12 and 3.13 and currently gates:
+Normal CI runs on Python 3.11, 3.12 and 3.13. The Python 3.12 qualification job currently enforces an overall coverage floor of **80%** plus separate thresholds for forensic-critical modules.
 
 ```text
 ruff
 compileall
 unit + synthetic regression tests
 malformed-input safety tests
-coverage >= 70%
+overall coverage >= 80%
+critical-module coverage thresholds
+public ground-truth corpus smoke
 CLI smoke tests
 package import tests
 sdist + wheel build
 pip dependency checks
 fresh installation of the built wheel
-built-wheel smoke tests
-public synthetic demo regression
+built-wheel corpus + smoke tests
 ```
 
-Additional security automation audits Python dependencies and public-release hygiene.
+At the 0.6 development milestone, CI reports approximately 80.6% total coverage, with WFS local reconstruction ~85%, WFS global reconstruction ~91%, WFS high-level recovery ~95%, generic solver ~91%, hashing/provenance ~90%+, crypto ~84%, and ddrescue orchestration 100%. These numbers are release-gate evidence, not independent forensic validation.
 
-See [`docs/VALIDATION.md`](docs/VALIDATION.md) and [`docs/RELEASE_NOTES_0.5.md`](docs/RELEASE_NOTES_0.5.md).
+Additional security automation audits Python dependencies, public-release hygiene and the complete Git history for secrets.
+
+See [`docs/VALIDATION.md`](docs/VALIDATION.md), [`docs/VALIDATION_CORPUS.md`](docs/VALIDATION_CORPUS.md) and [`docs/RELEASE_NOTES_0.6.md`](docs/RELEASE_NOTES_0.6.md).
 
 ## Repository map
 
@@ -297,12 +319,14 @@ vidrensic/
 ├── profiler/          source, storage, hit-map and triage analysis
 ├── profiles/          model/firmware data profiles
 ├── plugins/           WFS, DHAV, Hikvision, Annex-B, MPEG-PS
-└── recovery/          graph + global solver foundations
+├── recovery/          format-neutral graph/solver foundations
+└── validation/        ground-truth corpus runner
 
-examples/              deterministic synthetic public demo
-docs/                  architecture, support, demo, validation, release docs
-.github/                CI, security, issue forms and contribution workflow
-CITATION.cff            citation metadata for research/tool references
+validation_corpus/      versioned synthetic/public corpus manifests + fixtures
+examples/               deterministic synthetic public demo
+docs/                   architecture, support, demo, validation, release docs
+.github/                 CI, security, issue forms and contribution workflow
+CITATION.cff             citation metadata for research/tool references
 ```
 
 ## Forensic safety rules
@@ -314,9 +338,10 @@ CITATION.cff            citation metadata for research/tool references
 5. Treat signatures as evidence, not certainty.
 6. Preserve ambiguity instead of inventing camera/fragment identity.
 7. Never invent missing timestamps or timezone evidence.
-8. Bound parser-controlled lengths, offsets and table counts.
+8. Bound parser-controlled lengths, offsets and reconstruction search spaces.
 9. Never store cryptographic key bytes in logs or receipts.
 10. Do not advertise a family/model as recoverable when only detection or profiling exists.
+11. A source-hash mismatch invalidates a validation case before recovery runs.
 
 ## Contributing
 
@@ -336,15 +361,16 @@ If Vidrensic is useful to your research or lab work, a GitHub star helps other p
 
 Near-term priorities:
 
-- WFS path-dependent global reconstruction graph;
-- frame-level partial-overwrite salvage;
+- grow a multi-device WFS/DHAV real-recorder validation corpus with independently established ground truth;
+- WFS frame/NAL/GOP-level partial-overwrite salvage;
+- performance tuning and branch-and-bound pruning for path-dependent WFS global search;
 - DHAV chronological circular-wrap reconstruction and audio validation;
 - Hikvision HIKBTREE/data-block variant parsers backed by real fixtures;
 - E01/Ex01/AFF4 adapter strategy with independent verification;
 - RAID parity and recorder-specific multi-disk hypotheses;
 - synchronized multi-camera review workstation;
 - forensic export/report packages and stronger signed provenance;
-- larger known-good + intentionally corrupted validation corpus.
+- independent rerun / validation reporting.
 
 Full roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
@@ -355,8 +381,6 @@ Project owner / lead developer: [`@imedkablavi`](https://github.com/imedkablavi)
 Copyright © 2026 imedkablavi. All rights reserved.
 
 Vidrensic is currently proprietary software. Repository visibility does not by itself grant permission to redistribute, sublicense, sell, publish, host or incorporate the source into another product. See [`LICENSE`](LICENSE), [`NOTICE.md`](NOTICE.md) and [`AUTHORS.md`](AUTHORS.md).
-
-Public-launch settings and owner-only decisions are tracked in [`docs/PUBLIC_LAUNCH.md`](docs/PUBLIC_LAUNCH.md).
 
 ---
 
