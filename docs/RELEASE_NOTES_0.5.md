@@ -33,7 +33,13 @@ The normal CI matrix covers Python 3.11, 3.12 and 3.13 and gates:
 - installation and smoke testing of the built wheel;
 - deterministic public-demo regression.
 
-A separate security workflow audits Python dependencies and checks tracked public text for common secret patterns and known case-environment identifiers.
+A separate security workflow now gates:
+
+- `pip-audit` against installed project dependencies;
+- a tracked-text public-hygiene scan for common credential/secret patterns and suspicious local evidence paths;
+- Gitleaks `v8.30.1` against the complete Git history with redacted output.
+
+The public-readiness audit discovered that the previous `cryptography 46.x` dependency line was affected by current advisories. Vidrensic now requires the patched `cryptography >=50,<51` series, and the full CI matrix is used to verify compatibility with the supported Python versions.
 
 ## Current support maturity
 
