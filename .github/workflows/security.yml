@@ -55,7 +55,35 @@ jobs:
           fetch-depth: 0
 
       - name: Install pinned Gitleaks
-        run: go install github.com/gitleaks/gitleaks/v8@v8.30.1
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
 
       - name: Scan complete Git history
-        run: "$(go env GOPATH)/bin/gitleaks" git --redact --no-banner --exit-code 1 .
+        run: |
+          set +e
+          "$(go env GOPATH)/bin/gitleaks" git \
+            --redact \
+            --no-banner \
+            --exit-code 1 \
+            --report-format json \
+            --report-path gitleaks-report.json \
+            .
+          status=$?
+          set -e
+          if [ -s gitleaks-report.json ]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          rows = json.loads(Path("gitleaks-report.json").read_text(encoding="utf-8"))
+          print(f"Sanitized Gitleaks findings: {len(rows)}")
+          for row in rows:
+              print(
+                  "rule={rule} file={file} commit={commit} line={line}".format(
+                      rule=row.get("RuleID", "?"),
+                      file=row.get("File", "?"),
+                      commit=row.get("Commit", "?"),
+                      line=row.get("StartLine", "?"),
+                  )
+              )
+          PY
+          fi
+          exit "$status"
