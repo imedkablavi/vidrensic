@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -24,15 +24,40 @@ jobs:
       - name: Install build tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install build
+          python -m pip install build twine
 
       - name: Build source and wheel distributions
         run: python -m build
 
+      - name: Validate package metadata
+        run: python -m twine check dist/*.whl dist/*.tar.gz
+
+      - name: Write build manifest
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import platform
+          from pathlib import Path
+
+          manifest = {
+              "product": "Vidrensic",
+              "ref": os.environ.get("GITHUB_REF_NAME"),
+              "commit": os.environ.get("GITHUB_SHA"),
+              "workflow_run": os.environ.get("GITHUB_RUN_ID"),
+              "python": platform.python_version(),
+              "platform": platform.platform(),
+          }
+          Path("dist/BUILD-MANIFEST.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
       - name: Generate SHA-256 checksums
         run: |
           cd dist
-          sha256sum * > SHA256SUMS.txt
+          sha256sum BUILD-MANIFEST.json *.whl *.tar.gz > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Verify built wheel installs
@@ -41,7 +66,7 @@ jobs:
           vidrensic --version
           vidrensic formats list
 
-      - name: Upload release artifacts
+      - name: Upload Actions artifact
         uses: actions/upload-artifact@v7
         with:
           name: vidrensic-${{ github.ref_name }}
@@ -49,3 +74,13 @@ jobs:
             dist/*
           if-no-files-found: error
           retention-days: 30
+
+      - name: Attach artifacts to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
+          gh release upload "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
