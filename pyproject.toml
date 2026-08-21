@@ -36,10 +36,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/imedkablavi/Video-Forensics"
-Repository = "https://github.com/imedkablavi/Video-Forensics"
-Issues = "https://github.com/imedkablavi/Video-Forensics/issues"
-Documentation = "https://github.com/imedkablavi/Video-Forensics/tree/main/docs"
+Homepage = "https://github.com/imedkablavi/vidrensic"
+Repository = "https://github.com/imedkablavi/vidrensic"
+Issues = "https://github.com/imedkablavi/vidrensic/issues"
+Documentation = "https://github.com/imedkablavi/vidrensic/tree/main/docs"
 
 [project.scripts]
 vidrensic = "vidrensic.cli_ext:main"

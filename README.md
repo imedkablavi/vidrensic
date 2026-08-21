@@ -8,13 +8,14 @@
 
 Acquire · Triage · Detect · Reconstruct · Validate · Audit
 
-[![CI](https://github.com/imedkablavi/Video-Forensics/actions/workflows/ci.yml/badge.svg)](https://github.com/imedkablavi/Video-Forensics/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.5.0a0-2563eb)
+[![CI](https://github.com/imedkablavi/vidrensic/actions/workflows/ci.yml/badge.svg)](https://github.com/imedkablavi/vidrensic/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/imedkablavi/vidrensic?include_prereleases&sort=semver)](https://github.com/imedkablavi/vidrensic/releases)
+![Version](https://img.shields.io/badge/package-0.5.0a0-2563eb)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-Linux-111827?logo=linux)
 ![Coverage gate](https://img.shields.io/badge/coverage%20gate-70%25-16a34a)
 ![License](https://img.shields.io/badge/license-Proprietary-b91c1c)
-[![Stars](https://img.shields.io/github/stars/imedkablavi/Video-Forensics?style=flat&logo=github)](https://github.com/imedkablavi/Video-Forensics/stargazers)
+[![Stars](https://img.shields.io/github/stars/imedkablavi/vidrensic?style=flat&logo=github)](https://github.com/imedkablavi/vidrensic/stargazers)
 
 **Recover what the recorder still contains without pretending uncertainty is certainty.**
 
@@ -61,8 +62,8 @@ Validation + provenance
 ## 60-second start
 
 ```bash
-git clone https://github.com/imedkablavi/Video-Forensics.git
-cd Video-Forensics
+git clone https://github.com/imedkablavi/vidrensic.git
+cd vidrensic
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
