@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose a forensic workflow, format or engineering improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the forensic/recovery problem before describing the solution.
+    validations:
+      required: true
+  - type: input
+    id: family
+    attributes:
+      label: Recorder / format family
+      placeholder: "WFS, DHAV, Hikvision, unknown/OEM, generic..."
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Technical evidence or references
+      description: Describe structures, test vectors, legal fixtures or published documentation that could validate the feature.
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Forensic impact
+      options:
+        - Read-only acquisition / source safety
+        - Detection / profiling
+        - Reconstruction / recovery
+        - Media parsing / QC
+        - Time / provenance
+        - Crypto / protected storage
+        - Review / reporting
+        - Developer / CI / packaging
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Suggested acceptance tests
+      description: What known-good, malformed and ambiguity cases should pass before this is considered implemented?
