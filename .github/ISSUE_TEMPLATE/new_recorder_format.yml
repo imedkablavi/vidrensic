@@ -1,0 +1,86 @@
+name: New DVR / NVR format request
+description: Request investigation of a recorder/storage/container variant without posting case evidence publicly.
+title: "[FORMAT] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping expand Vidrensic. **Do not attach private CCTV, credentials, encryption keys, personal data, or active-case evidence to a public issue.** Provide metadata only. If a sample is genuinely required, follow `docs/SAMPLE_SUBMISSION.md`.
+
+  - type: input
+    id: vendor
+    attributes:
+      label: Vendor / OEM label
+      placeholder: e.g. vendor name, white-label/OEM if known
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Recorder model
+      placeholder: Exact model or board/platform identifier
+    validations:
+      required: true
+
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware / software version
+      placeholder: Exact version if available
+
+  - type: dropdown
+    id: source_type
+    attributes:
+      label: Evidence/source type
+      options:
+        - Physical HDD/SSD
+        - Forensic raw image
+        - Vendor-exported file
+        - RAID/JBOD member set
+        - Unknown / other
+    validations:
+      required: true
+
+  - type: textarea
+    id: topology
+    attributes:
+      label: Storage topology
+      description: Disk count, capacities, partitions, RAID/JBOD observations, filesystem signatures, and whether the recorder was still operational.
+      placeholder: "2 x 4 TB disks; no conventional filesystem visible; circular recording suspected"
+
+  - type: textarea
+    id: signatures
+    attributes:
+      label: Observed signatures / metadata
+      description: Hex signatures, filenames, container markers, exported extensions, strings, or non-sensitive profiler output.
+      render: text
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should Vidrensic be able to do?
+      placeholder: Detect, profile, enumerate recordings, reconstruct channels, recover deleted/unindexed video, parse timestamps, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction notes
+      description: Commands and sanitized output that demonstrate the current limitation.
+      render: shell
+
+  - type: checkboxes
+    id: authorization
+    attributes:
+      label: Evidence handling confirmation
+      options:
+        - label: I am authorized to analyze the referenced device/data.
+          required: true
+        - label: I have not attached private CCTV, credentials, encryption keys, or active-case evidence to this issue.
+          required: true
+        - label: I understand that format detection does not imply validated recovery support.
+          required: true

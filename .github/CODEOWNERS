@@ -1,0 +1,11 @@
+# Default ownership for code and forensic policy changes.
+* @imedkablavi
+
+/vidrensic/plugins/ @imedkablavi
+/vidrensic/acquisition/ @imedkablavi
+/vidrensic/crypto/ @imedkablavi
+/vidrensic/recovery/ @imedkablavi
+/docs/FORENSIC_POLICY.md @imedkablavi
+/docs/VALIDATION.md @imedkablavi
+/SECURITY.md @imedkablavi
+/.github/workflows/ @imedkablavi
