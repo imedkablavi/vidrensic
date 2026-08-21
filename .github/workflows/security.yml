@@ -32,5 +32,16 @@ jobs:
       - name: Audit Python dependencies
         run: pip-audit
 
-      - name: Check public-release hygiene
+  public-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Check tracked public text
         run: python scripts/public_hygiene.py
