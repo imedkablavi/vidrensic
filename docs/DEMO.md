@@ -5,8 +5,8 @@ This demo is intentionally synthetic. It contains **no real CCTV footage and no 
 ## 1. Install the development build
 
 ```bash
-git clone https://github.com/imedkablavi/Video-Forensics.git
-cd Video-Forensics
+git clone https://github.com/imedkablavi/vidrensic.git
+cd vidrensic
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
