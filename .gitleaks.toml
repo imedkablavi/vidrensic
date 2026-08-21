@@ -1,0 +1,11 @@
+title = "Vidrensic Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public NIST SP 800-38A AES-128 known-answer test key; not a credential"
+regexTarget = "secret"
+regexes = [
+  '''2b7e151628aed2a6abf7158809cf4f3c''',
+]
