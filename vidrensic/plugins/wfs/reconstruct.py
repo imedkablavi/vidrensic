@@ -101,7 +101,10 @@ def probe_candidate(
         return False, None
 
     offset = _fragment_offset(data_offset, fragment, fragment_size)
-    probe = _pread(fd, 512, offset)
+    # A continuation probe is evidence about this physical fragment only. Never
+    # let a look-ahead read bleed into the following fragment, otherwise bytes
+    # from an unrelated camera/record can invalidate legitimate terminal padding.
+    probe = _pread(fd, min(512, fragment_size), offset)
     if not probe:
         return False, None
 
@@ -116,7 +119,7 @@ def probe_candidate(
         need = info.total_size - len(tail)
         if need < 0 or need >= fragment_size - 32:
             return False, None
-        continuation = _pread(fd, need + 512, offset)
+        continuation = _pread(fd, min(fragment_size, need + 512), offset)
         if len(continuation) < need:
             return False, None
         if not padding_here(continuation, need) and packet_info(continuation, need) is None:
@@ -198,7 +201,8 @@ def build_chains(
     to two streams in the same reconstruction. Multiple valid continuations are
     preserved as ambiguity evidence.
 
-    This is a bounded local optimizer, not the planned global graph solver.
+    This is a bounded local optimizer retained for compatibility/comparison.
+    The path-dependent global reconstruction mode lives in global_reconstruct.
     """
 
     if not starts:
