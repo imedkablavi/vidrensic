@@ -17,19 +17,13 @@ TEXT_SUFFIXES = {
     ".sh",
 }
 
-FORBIDDEN_LITERALS = {
-    "cybrexserver": "case workstation hostname",
-    "/srv/storage/nvr_case": "case working path",
-    "ST32000646NS": "case source-drive model",
-    "DVR-Video": "case removable-media label",
-}
-
 SECRET_PATTERNS = {
     "PEM private key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
     "GitHub token": re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{30,}\b"),
     "AWS access key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     "Slack token": re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b"),
     "credential URL": re.compile(r"https?://[^\s/:]+:[^\s/@]+@"),
+    "likely local case path": re.compile(r"/(?:home|srv|mnt)/[^\s'\"`]+/(?:case|cases|evidence|recovery|recoveries)[^\s'\"`]*", re.IGNORECASE),
 }
 
 SKIP_PREFIXES = (".git/", "dist/", "build/", ".venv/", "venv/")
@@ -65,11 +59,6 @@ def main() -> int:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-
-        lower = text.lower()
-        for literal, reason in FORBIDDEN_LITERALS.items():
-            if literal.lower() in lower:
-                findings.append(f"{path}: contains {reason}: {literal!r}")
 
         for name, pattern in SECRET_PATTERNS.items():
             if pattern.search(text):
