@@ -14,26 +14,25 @@ from vidrensic.acquisition.linux import inspect_source, require_safe_source
 from vidrensic.acquisition.smart import capture_smart
 from vidrensic.core.case import Case
 from vidrensic.core.jobs import JobStatus
+from vidrensic.core.units import parse_byte_size
 from vidrensic.media.qc import fast_three_point_check, full_decode_check
-from vidrensic.plugins.annexb import AnnexBPlugin
 from vidrensic.plugins.capabilities import FormatOperation
-from vidrensic.plugins.dhav import DHAVPlugin, demux_dhav_range
-from vidrensic.plugins.hikvision import HikvisionPlugin
-from vidrensic.plugins.mpegps import MPEGPSPlugin
-from vidrensic.plugins.registry import PluginRegistry
-from vidrensic.plugins.wfs import WFSPlugin
+from vidrensic.plugins.defaults import default_plugin_registry
+from vidrensic.plugins.dhav import demux_dhav_range
 from vidrensic.plugins.wfs.layout import infer_wfs_fragment_alignment
 from vidrensic.plugins.wfs.recovery import recover_segment
+from vidrensic.profiler.hitmap import scan_signature_hitmap
 from vidrensic.profiler.source import profile_source
 from vidrensic.profiler.storage import profile_storage
+from vidrensic.profiler.triage import triage_source
 from vidrensic.profiles import default_profile_registry
 
 
 def _int_auto(value: str) -> int:
     try:
-        return int(value, 0)
+        return parse_byte_size(value)
     except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"invalid integer: {value}") from exc
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def _csv_ints(value: str) -> list[int]:
@@ -63,16 +62,8 @@ def _job_status(value: str) -> JobStatus:
         raise argparse.ArgumentTypeError(f"status must be one of: {choices}") from exc
 
 
-def default_registry() -> PluginRegistry:
-    return PluginRegistry(
-        [
-            WFSPlugin(),
-            DHAVPlugin(),
-            HikvisionPlugin(),
-            AnnexBPlugin(),
-            MPEGPSPlugin(),
-        ]
-    )
+def default_registry():
+    return default_plugin_registry()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -114,6 +105,22 @@ def build_parser() -> argparse.ArgumentParser:
     smart.add_argument("--out", type=Path)
     smart.add_argument("--case", type=Path)
 
+    triage = sub.add_parser(
+        "triage",
+        help="run read-only first-pass triage for an unknown DVR/NVR source",
+    )
+    triage.add_argument("source", type=Path)
+    triage.add_argument("--out", type=Path, required=True)
+    triage.add_argument("--sample-size", type=_int_auto, default=4 * 1024 * 1024)
+    triage.add_argument("--sample-count", type=int, default=5)
+    triage.add_argument("--hitmap-size", type=_int_auto, default=512 * 1024 * 1024)
+    triage.add_argument("--full-hitmap", action="store_true")
+    triage.add_argument("--hitmap-chunk-size", type=_int_auto, default=16 * 1024 * 1024)
+    triage.add_argument("--max-offsets", type=int, default=128)
+    triage.add_argument("--minimum-confidence", type=float, default=0.60)
+    triage.add_argument("--minimum-margin", type=float, default=0.15)
+    triage.add_argument("--case", type=Path)
+
     profile_cmd = sub.add_parser("profile", help="build bounded evidence/source hypotheses")
     profile_sub = profile_cmd.add_subparsers(dest="profile_command")
     profile_generic = profile_sub.add_parser("source", help="sample an unknown DVR/NVR source")
@@ -129,6 +136,17 @@ def build_parser() -> argparse.ArgumentParser:
     profile_storage_cmd.add_argument("source", type=Path)
     profile_storage_cmd.add_argument("--out", type=Path, required=True)
     profile_storage_cmd.add_argument("--case", type=Path)
+    profile_hitmap = profile_sub.add_parser(
+        "hitmap",
+        help="stream physical signature counts/offset samples with bounded memory",
+    )
+    profile_hitmap.add_argument("source", type=Path)
+    profile_hitmap.add_argument("--range-start", type=_int_auto, default=0)
+    profile_hitmap.add_argument("--range-size", type=_int_auto)
+    profile_hitmap.add_argument("--chunk-size", type=_int_auto, default=16 * 1024 * 1024)
+    profile_hitmap.add_argument("--max-offsets", type=int, default=256)
+    profile_hitmap.add_argument("--out", type=Path, required=True)
+    profile_hitmap.add_argument("--case", type=Path)
     profile_wfs = profile_sub.add_parser(
         "wfs-layout",
         help="rank WFS fragment-alignment hypotheses in a bounded range",
@@ -294,6 +312,20 @@ def _case_job_start(case: Case | None, kind: str, details: dict):
     return case.jobs.start(job.job_id)
 
 
+def _profile_job(case: Case | None, kind: str, details: dict):
+    job = _case_job_start(case, kind, details)
+    if case and job:
+        case.audit.append(f"{kind}.started", {**details, "job_id": job.job_id}, actor=case.examiner)
+    return job
+
+
+def _finish_profile_job(case: Case | None, job, event: str, details: dict, output: Path) -> None:
+    if case and job:
+        case.jobs.checkpoint(job.job_id, {"output": str(output)})
+        case.jobs.complete(job.job_id)
+        case.audit.append(event, {**details, "job_id": job.job_id}, actor=case.examiner)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -368,10 +400,54 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(snapshot.to_dict(), indent=2, sort_keys=True))
         return 0 if snapshot.captured else 2
 
-    if args.command == "profile" and args.profile_command in ("source", "storage", "wfs-layout"):
+    if args.command == "triage":
+        case = Case.load(args.case) if args.case else None
+        details = {
+            "source": str(args.source),
+            "output": str(args.out),
+            "sample_size": args.sample_size,
+            "sample_count": args.sample_count,
+            "hitmap_size": None if args.full_hitmap else args.hitmap_size,
+            "hitmap_chunk_size": args.hitmap_chunk_size,
+            "max_offsets": args.max_offsets,
+            "minimum_confidence": args.minimum_confidence,
+            "minimum_margin": args.minimum_margin,
+        }
+        job = _profile_job(case, "triage", details)
+        try:
+            report = triage_source(
+                args.source,
+                sample_size=args.sample_size,
+                sample_count=args.sample_count,
+                hitmap_size=None if args.full_hitmap else args.hitmap_size,
+                hitmap_chunk_size=args.hitmap_chunk_size,
+                max_offsets_per_signature=args.max_offsets,
+                minimum_confidence=args.minimum_confidence,
+                minimum_margin=args.minimum_margin,
+            )
+            report.write_json(args.out)
+        except Exception as exc:
+            if case and job:
+                case.jobs.fail(job.job_id, f"{type(exc).__name__}: {exc}")
+                case.audit.append(
+                    "triage.failed",
+                    {**details, "job_id": job.job_id, "error": f"{type(exc).__name__}: {exc}"},
+                    actor=case.examiner,
+                )
+            raise
+        _finish_profile_job(case, job, "triage.finished", details, args.out)
+        print(args.out.resolve())
+        return 0
+
+    if args.command == "profile" and args.profile_command in (
+        "source",
+        "storage",
+        "hitmap",
+        "wfs-layout",
+    ):
         case = Case.load(args.case) if args.case else None
         details = {"source": str(args.source), "mode": args.profile_command, "output": str(args.out)}
-        job = _case_job_start(case, f"profile.{args.profile_command}", details)
+        job = _profile_job(case, f"profile.{args.profile_command}", details)
         try:
             if args.profile_command == "source":
                 report = profile_source(
@@ -381,6 +457,14 @@ def main(argv: list[str] | None = None) -> int:
                 )
             elif args.profile_command == "storage":
                 report = profile_storage(args.source)
+            elif args.profile_command == "hitmap":
+                report = scan_signature_hitmap(
+                    args.source,
+                    range_start=args.range_start,
+                    range_size=args.range_size,
+                    chunk_size=args.chunk_size,
+                    max_offsets_per_signature=args.max_offsets,
+                )
             else:
                 report = infer_wfs_fragment_alignment(
                     args.source,
@@ -400,14 +484,7 @@ def main(argv: list[str] | None = None) -> int:
                     actor=case.examiner,
                 )
             raise
-        if case and job:
-            case.jobs.checkpoint(job.job_id, {"output": str(args.out)})
-            case.jobs.complete(job.job_id)
-            case.audit.append(
-                "profile.finished",
-                {**details, "job_id": job.job_id},
-                actor=case.examiner,
-            )
+        _finish_profile_job(case, job, "profile.finished", details, args.out)
         print(args.out.resolve())
         return 0
 

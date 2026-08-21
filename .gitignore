@@ -19,3 +19,4 @@ htmlcov/
 *.h265
 *.hevc
 cases/
+.vidrensic-demo/

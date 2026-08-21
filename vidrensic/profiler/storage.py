@@ -7,6 +7,7 @@ import json
 import os
 import struct
 import uuid
+import zlib
 
 from vidrensic.acquisition.linux import require_safe_source
 
@@ -125,7 +126,13 @@ def _guid_text(raw: bytes) -> str:
         return raw.hex()
 
 
+def _crc32(data: bytes) -> int:
+    return zlib.crc32(data) & 0xFFFFFFFF
+
+
 def _parse_gpt(fd: int, source_size: int) -> tuple[int, list[PartitionRecord]] | None:
+    """Parse a primary GPT only when header/table CRC and geometry validate."""
+
     for sector_size in (512, 4096):
         header = _pread(fd, sector_size, sector_size)
         if len(header) < 92 or header[:8] != b"EFI PART":
@@ -133,21 +140,40 @@ def _parse_gpt(fd: int, source_size: int) -> tuple[int, list[PartitionRecord]] |
         header_size = struct.unpack_from("<I", header, 12)[0]
         if not 92 <= header_size <= sector_size:
             continue
+
+        stored_header_crc = struct.unpack_from("<I", header, 16)[0]
+        header_for_crc = bytearray(header[:header_size])
+        header_for_crc[16:20] = b"\x00\x00\x00\x00"
+        if _crc32(header_for_crc) != stored_header_crc:
+            continue
+
+        current_lba = struct.unpack_from("<Q", header, 24)[0]
+        first_usable = struct.unpack_from("<Q", header, 40)[0]
+        last_usable = struct.unpack_from("<Q", header, 48)[0]
+        total_lbas = source_size // sector_size
+        if current_lba != 1 or total_lbas < 2:
+            continue
+        if first_usable == 0 or last_usable < first_usable or last_usable >= total_lbas:
+            continue
+
         entry_lba = struct.unpack_from("<Q", header, 72)[0]
         count = struct.unpack_from("<I", header, 80)[0]
         entry_size = struct.unpack_from("<I", header, 84)[0]
+        stored_table_crc = struct.unpack_from("<I", header, 88)[0]
         if not 128 <= entry_size <= 4096 or not 1 <= count <= 4096:
             continue
         total = count * entry_size
         if total > 16 * 1024 * 1024:
             continue
         table_offset = entry_lba * sector_size
-        if table_offset + total > source_size:
+        if table_offset < sector_size * 2 or table_offset + total > source_size:
             continue
         table = _pread(fd, total, table_offset)
-        if len(table) != total:
+        if len(table) != total or _crc32(table) != stored_table_crc:
             continue
+
         partitions: list[PartitionRecord] = []
+        valid = True
         for index in range(count):
             entry = table[index * entry_size : (index + 1) * entry_size]
             type_guid = entry[:16]
@@ -156,13 +182,11 @@ def _parse_gpt(fd: int, source_size: int) -> tuple[int, list[PartitionRecord]] |
             unique_guid = entry[16:32]
             first_lba = struct.unpack_from("<Q", entry, 32)[0]
             last_lba = struct.unpack_from("<Q", entry, 40)[0]
-            if first_lba == 0 or last_lba < first_lba:
-                continue
+            if first_lba < first_usable or last_lba > last_usable or last_lba < first_lba:
+                valid = False
+                break
             name_raw = entry[56 : min(entry_size, 128)]
-            try:
-                name = name_raw.decode("utf-16le", errors="ignore").split("\x00", 1)[0] or None
-            except UnicodeError:
-                name = None
+            name = name_raw.decode("utf-16le", errors="ignore").split("\x00", 1)[0] or None
             partitions.append(
                 PartitionRecord(
                     scheme="GPT",
@@ -175,6 +199,15 @@ def _parse_gpt(fd: int, source_size: int) -> tuple[int, list[PartitionRecord]] |
                     name=name,
                 )
             )
+        if not valid:
+            continue
+
+        ordered = sorted(partitions, key=lambda item: (item.start_lba, item.end_lba))
+        if any(
+            left.end_lba >= right.start_lba
+            for left, right in zip(ordered, ordered[1:], strict=False)
+        ):
+            continue
         return sector_size, partitions
     return None
 
@@ -228,6 +261,7 @@ def profile_storage(source: Path) -> StorageReport:
 
     info = require_safe_source(source)
     fd = os.open(info.path, os.O_RDONLY)
+    geometry_notes: list[str] = []
     try:
         first = _pread(fd, 4096, 0)
         mbr, protective = _parse_mbr(first[:512], 512)
@@ -245,11 +279,12 @@ def profile_storage(source: Path) -> StorageReport:
             scheme = None
 
         filesystems: list[FilesystemHit] = []
-        # Always inspect byte zero: DVR images are frequently unpartitioned or
-        # use filesystem-like structures without a conventional partition table.
         filesystems.extend(_probe_filesystem(fd, 0, None))
         for part in partitions:
-            if part.start_bytes >= info.size_bytes:
+            if part.start_bytes >= info.size_bytes or part.start_bytes + part.size_bytes > info.size_bytes:
+                geometry_notes.append(
+                    f"partition {part.index} geometry extends outside the source; filesystem probe skipped"
+                )
                 continue
             filesystems.extend(_probe_filesystem(fd, part.start_bytes, part.index))
     finally:
@@ -259,9 +294,11 @@ def profile_storage(source: Path) -> StorageReport:
         "known-filesystem detection does not imply that surveillance video is stored as ordinary files",
         "proprietary video areas can coexist with EXT/XFS/JFS/FAT metadata partitions or unpartitioned space",
         "no filesystem was mounted or repaired",
+        "GPT is accepted only when primary header and partition-array CRCs plus basic geometry validate",
+        *geometry_notes,
     ]
     if protective and scheme != "GPT":
-        notes.append("protective MBR observed but a valid GPT header/table was not parsed")
+        notes.append("protective MBR observed but a CRC-valid GPT header/table was not parsed")
     if not partitions:
         notes.append("no conventional MBR/GPT partition entries were identified")
 

@@ -1,0 +1,67 @@
+name: Bug report
+description: Report a reproducible Vidrensic defect
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a reproducible problem. Do not attach confidential case evidence, credentials or cryptographic keys.
+  - type: input
+    id: version
+    attributes:
+      label: Vidrensic version / commit
+      placeholder: "0.5.0a0 / commit SHA"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "Ubuntu 24.04, Python 3.12, ffmpeg ..."
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: `vidrensic doctor --json`
+      description: Remove paths or identifiers you consider sensitive.
+      render: json
+  - type: input
+    id: family
+    attributes:
+      label: Recorder / format family
+      placeholder: "WFS, DHAV, Hikvision profile, unknown..."
+  - type: textarea
+    id: command
+    attributes:
+      label: Exact command or API call
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Reproducible technical evidence
+      description: Include synthetic bytes, hashes, offsets, stack traces or a minimal fixture when legally shareable.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I did not include confidential footage, private case data, credentials or cryptographic keys.
+          required: true
+        - label: I understand format detection alone does not establish full recovery support.
+          required: true

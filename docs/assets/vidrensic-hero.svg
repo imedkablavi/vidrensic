@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">Vidrensic</title>
+  <desc id="desc">Forensic-first DVR and NVR evidence reconstruction platform.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="0.55" stop-color="#0b1d33"/>
+      <stop offset="1" stop-color="#121b3a"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#6366f1"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#7dd3fc" stroke-opacity=".06"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="360" rx="28" fill="url(#bg)"/>
+  <rect width="1200" height="360" rx="28" fill="url(#grid)"/>
+  <g transform="translate(72 55)">
+    <path d="M118 4 212 38v80c0 66-39 113-94 145-55-32-94-79-94-145V38L118 4Z" fill="#06101c" stroke="url(#line)" stroke-width="10"/>
+    <path d="m60 76 58 116 58-116" fill="none" stroke="url(#line)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="118" cy="104" r="34" fill="#0a1728" stroke="#67e8f9" stroke-width="6"/>
+    <path d="m109 87 29 17-29 17Z" fill="#e0f2fe"/>
+  </g>
+  <g transform="translate(338 88)" font-family="Inter,Segoe UI,Arial,sans-serif">
+    <text x="0" y="70" fill="#f8fafc" font-size="72" font-weight="800" letter-spacing="4">VIDRENSIC</text>
+    <text x="3" y="113" fill="#94a3b8" font-size="24" font-weight="500">DVR / NVR evidence reconstruction &amp; video forensics</text>
+    <rect x="3" y="145" width="730" height="4" rx="2" fill="url(#line)" opacity=".9"/>
+    <g font-size="17" font-weight="600">
+      <g transform="translate(3 182)"><rect width="166" height="42" rx="21" fill="#0f2a3a" stroke="#22d3ee" stroke-opacity=".45"/><text x="83" y="27" text-anchor="middle" fill="#a5f3fc">Read-only first</text></g>
+      <g transform="translate(181 182)"><rect width="160" height="42" rx="21" fill="#10253a" stroke="#38bdf8" stroke-opacity=".45"/><text x="80" y="27" text-anchor="middle" fill="#bae6fd">Multi-format</text></g>
+      <g transform="translate(353 182)"><rect width="190" height="42" rx="21" fill="#121f3d" stroke="#6366f1" stroke-opacity=".5"/><text x="95" y="27" text-anchor="middle" fill="#c7d2fe">Auditable recovery</text></g>
+      <g transform="translate(555 182)"><rect width="178" height="42" rx="21" fill="#102c32" stroke="#34d399" stroke-opacity=".45"/><text x="89" y="27" text-anchor="middle" fill="#a7f3d0">Forensic QA</text></g>
+    </g>
+  </g>
+  <g fill="#22d3ee" opacity=".55">
+    <circle cx="1080" cy="61" r="5"/><circle cx="1110" cy="84" r="4"/><circle cx="1061" cy="111" r="3"/>
+    <path d="M1030 72h46M1085 90h54M1027 125h76" stroke="#22d3ee" stroke-width="2" fill="none"/>
+  </g>
+</svg>

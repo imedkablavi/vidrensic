@@ -49,7 +49,9 @@ class JobStore:
     """Crash-resistant SQLite store for resumable forensic jobs.
 
     SQLite stores orchestration metadata only. Evidence bytes and native media stay
-    in normal case directories and retain their own hashes/provenance.
+    in normal case directories and retain their own hashes/provenance. State
+    transitions use `BEGIN IMMEDIATE` and compare the previous status in the
+    UPDATE so competing processes cannot both finalize the same stale state.
     """
 
     def __init__(self, path: Path):
@@ -63,6 +65,7 @@ class JobStore:
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = FULL")
+        conn.execute("PRAGMA busy_timeout = 30000")
         return conn
 
     def _initialize(self) -> None:
@@ -205,9 +208,6 @@ class JobStore:
         *,
         error: str | None = None,
     ) -> JobRecord:
-        existing = self.get(job_id)
-        if existing.status in FINAL_STATUSES:
-            raise ValueError(f"job is already final: {existing.status.value}")
         allowed = {
             JobStatus.PENDING: {JobStatus.RUNNING, JobStatus.CANCELLED, JobStatus.FAILED},
             JobStatus.RUNNING: {
@@ -218,13 +218,25 @@ class JobStore:
             },
             JobStatus.PAUSED: {JobStatus.RUNNING, JobStatus.CANCELLED, JobStatus.FAILED},
         }
-        if status not in allowed.get(existing.status, set()):
-            raise ValueError(f"invalid job transition {existing.status.value} -> {status.value}")
         with self._connect() as conn:
-            conn.execute(
-                "UPDATE jobs SET status=?, updated_utc=?, error=? WHERE job_id=?",
-                (status.value, self._now(), error, job_id),
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+            if row is None:
+                raise KeyError(f"unknown job: {job_id}")
+            existing = self._from_row(row)
+            if existing.status in FINAL_STATUSES:
+                raise ValueError(f"job is already final: {existing.status.value}")
+            if status not in allowed.get(existing.status, set()):
+                raise ValueError(f"invalid job transition {existing.status.value} -> {status.value}")
+            cursor = conn.execute(
+                """
+                UPDATE jobs SET status=?, updated_utc=?, error=?
+                WHERE job_id=? AND status=?
+                """,
+                (status.value, self._now(), error, job_id, existing.status.value),
             )
+            if cursor.rowcount != 1:
+                raise RuntimeError("job status changed concurrently; retry from fresh state")
         return self.get(job_id)
 
     def checkpoint(
@@ -235,21 +247,34 @@ class JobStore:
         progress_current: int | None = None,
         progress_total: int | None = None,
     ) -> JobRecord:
-        existing = self.get(job_id)
-        if existing.status in FINAL_STATUSES:
-            raise ValueError("cannot checkpoint a final job")
-        current = existing.progress_current if progress_current is None else progress_current
-        total = existing.progress_total if progress_total is None else progress_total
-        self._validate_progress(current, total)
         with self._connect() as conn:
-            conn.execute(
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+            if row is None:
+                raise KeyError(f"unknown job: {job_id}")
+            existing = self._from_row(row)
+            if existing.status in FINAL_STATUSES:
+                raise ValueError("cannot checkpoint a final job")
+            current = existing.progress_current if progress_current is None else progress_current
+            total = existing.progress_total if progress_total is None else progress_total
+            self._validate_progress(current, total)
+            cursor = conn.execute(
                 """
                 UPDATE jobs
                 SET checkpoint_json=?, progress_current=?, progress_total=?, updated_utc=?
-                WHERE job_id=?
+                WHERE job_id=? AND status=?
                 """,
-                (self._json(value), current, total, self._now(), job_id),
+                (
+                    self._json(value),
+                    current,
+                    total,
+                    self._now(),
+                    job_id,
+                    existing.status.value,
+                ),
             )
+            if cursor.rowcount != 1:
+                raise RuntimeError("job status changed concurrently; checkpoint was not committed")
         return self.get(job_id)
 
     @staticmethod

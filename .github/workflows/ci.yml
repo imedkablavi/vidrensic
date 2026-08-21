@@ -18,10 +18,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -29,17 +29,51 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
+          python -m pip check
 
       - name: Ruff
         run: ruff check vidrensic tests
 
+      - name: Compile all Python modules
+        run: python -m compileall -q vidrensic tests
+
       - name: Unit and synthetic tests
+        if: matrix.python-version != '3.12'
         run: pytest
+
+      - name: Unit tests with coverage gate
+        if: matrix.python-version == '3.12'
+        run: |
+          pytest --cov=vidrensic --cov-report=term-missing --cov-report=xml --cov-fail-under=70
 
       - name: CLI smoke test
         run: |
           vidrensic --version
+          vidrensic doctor --json
           vidrensic plugins list
+          vidrensic formats list
 
       - name: Package import smoke test
-        run: python -c "import vidrensic; print(vidrensic.__version__)"
+        run: python -c "import vidrensic; import vidrensic.crypto; print(vidrensic.__version__)"
+
+      - name: Build source and wheel distributions
+        if: matrix.python-version == '3.12'
+        run: python -m build
+
+      - name: Smoke test built wheel
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m pip uninstall -y vidrensic
+          python -m pip install --force-reinstall dist/*.whl
+          python -m pip check
+          vidrensic --version
+          python -c "from vidrensic.crypto import KeyMaterial; print(KeyMaterial(b'0' * 16).fingerprint_sha256[:8])"
+
+      - name: Upload coverage artifact
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.sha }}
+          path: coverage.xml
+          if-no-files-found: error
+          retention-days: 14

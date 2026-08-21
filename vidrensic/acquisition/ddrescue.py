@@ -8,6 +8,9 @@ import subprocess
 from vidrensic.acquisition.linux import require_safe_source
 
 
+FAT32_MAX_FILE_BYTES = 4 * 1024**3 - 1
+
+
 @dataclass(frozen=True)
 class AcquisitionPlan:
     source: Path
@@ -31,6 +34,23 @@ class AcquisitionPlan:
             raise ValueError("mapfile cannot be the evidence source")
         if self.output.resolve() == self.mapfile.resolve():
             raise ValueError("output and mapfile must be different paths")
+
+    def validate_source_geometry(self, source_size: int) -> int:
+        """Return the expected logical output size after validating source bounds."""
+
+        self.validate()
+        if source_size <= 0:
+            raise ValueError("source size must be positive")
+        if self.offset >= source_size:
+            raise ValueError("acquisition offset is at or beyond the source end")
+        available = source_size - self.offset
+        if self.size is not None:
+            if self.size > available:
+                raise ValueError(
+                    f"requested acquisition size {self.size} exceeds {available} available source bytes"
+                )
+            return self.size
+        return available
 
     def first_pass_command(self) -> list[str]:
         self.validate()
@@ -58,6 +78,8 @@ class AcquisitionPlan:
 
     @property
     def required_output_bytes(self) -> int | None:
+        # Without source geometry, an unbounded acquisition cannot know its final
+        # output size. Execution always resolves this with validate_source_geometry().
         return self.size
 
     @property
@@ -75,17 +97,59 @@ class AcquisitionPlan:
         return max(0, required - self.existing_output_bytes)
 
 
-def check_capacity(plan: AcquisitionPlan, *, reserve_bytes: int = 2 * 1024**3) -> None:
+def _filesystem_type(path: Path) -> str | None:
+    proc = subprocess.run(
+        ["findmnt", "-n", "-o", "FSTYPE", "-T", str(path)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return None
+    value = proc.stdout.strip().lower()
+    return value or None
+
+
+def check_capacity(
+    plan: AcquisitionPlan,
+    *,
+    source_size: int | None = None,
+    reserve_bytes: int = 2 * 1024**3,
+) -> None:
+    """Preflight free space and common destination file-size limits.
+
+    When source geometry is available, full/unbounded acquisitions are checked
+    just as strictly as selective acquisitions. Existing partial output bytes are
+    deducted so resumable ddrescue jobs do not require the full size twice.
+    """
+
     plan.validate()
-    required = plan.additional_required_bytes
-    if required is None:
-        return
+    if reserve_bytes < 0:
+        raise ValueError("reserve_bytes cannot be negative")
+
+    if source_size is None:
+        required_total = plan.required_output_bytes
+        if required_total is None:
+            raise ValueError("source_size is required to preflight an unbounded acquisition")
+    else:
+        required_total = plan.validate_source_geometry(source_size)
+
+    additional = max(0, required_total - plan.existing_output_bytes)
     parent = plan.output.parent.resolve()
     parent.mkdir(parents=True, exist_ok=True)
-    free = shutil.disk_usage(parent).free
-    if free < required + reserve_bytes:
+
+    fstype = _filesystem_type(parent)
+    if fstype in {"vfat", "msdos", "fat", "fat32"} and required_total > FAT32_MAX_FILE_BYTES:
         raise OSError(
-            f"insufficient free space: need about {required + reserve_bytes} additional bytes, "
+            f"destination filesystem {fstype} cannot safely hold a {required_total}-byte single image; "
+            "use ext4/XFS/exFAT/another large-file filesystem or a segmented forensic format"
+        )
+
+    free = shutil.disk_usage(parent).free
+    if free < additional + reserve_bytes:
+        raise OSError(
+            f"insufficient free space: need about {additional + reserve_bytes} additional bytes, "
             f"have {free}"
         )
 
@@ -104,10 +168,14 @@ def execute_plan(
     """
 
     plan.validate()
-    require_safe_source(plan.source, allow_write_enabled=allow_write_enabled_source)
-    check_capacity(plan)
+    info = require_safe_source(plan.source, allow_write_enabled=allow_write_enabled_source)
+    plan.validate_source_geometry(info.size_bytes)
+    check_capacity(plan, source_size=info.size_bytes)
     plan.output.parent.mkdir(parents=True, exist_ok=True)
     plan.mapfile.parent.mkdir(parents=True, exist_ok=True)
+
+    if shutil.which("ddrescue") is None:
+        raise FileNotFoundError("GNU ddrescue executable was not found in PATH")
 
     commands = [plan.first_pass_command()]
     retry = plan.retry_command()

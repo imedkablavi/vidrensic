@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use Vidrensic in research, validation, training, or publications, please cite the software using this metadata."
+type: software
+title: "Vidrensic"
+abstract: "Forensic-first DVR/NVR acquisition, triage, proprietary storage reconstruction, and video validation platform."
+authors:
+  - name: "imedkablavi"
+version: "0.5.0-alpha"
+date-released: 2026-08-21
+repository-code: "https://github.com/imedkablavi/Video-Forensics"
+url: "https://github.com/imedkablavi/Video-Forensics"
+keywords:
+  - digital forensics
+  - video forensics
+  - DVR
+  - NVR
+  - CCTV
+  - video recovery
+  - WFS
+  - DHAV
+  - H.264
+  - HEVC

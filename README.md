@@ -1,302 +1,215 @@
 <div align="center">
 
-# VIDRENSIC
+<img src="docs/assets/vidrensic-mark.svg" width="116" alt="Vidrensic logo">
 
-### DVR / NVR Evidence Reconstruction & Video Forensics
+# Vidrensic
 
-**Acquire · Profile · Detect · Reconstruct · Validate · Review · Export**
+**Forensic-first DVR / NVR evidence reconstruction and video forensics**
 
-![Stage](https://img.shields.io/badge/stage-0.4--alpha-orange)
-![Platform](https://img.shields.io/badge/platform-Linux-222222?logo=linux)
-![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
-![License](https://img.shields.io/badge/license-Proprietary-red)
-![Evidence](https://img.shields.io/badge/source-read--only%20first-0A7B83)
-![Families](https://img.shields.io/badge/architecture-multi--format-6f42c1)
+Acquire · Triage · Detect · Reconstruct · Validate · Audit
 
-**Forensic-first recovery for proprietary surveillance storage.**
+[![CI](https://github.com/imedkablavi/Video-Forensics/actions/workflows/ci.yml/badge.svg)](https://github.com/imedkablavi/Video-Forensics/actions/workflows/ci.yml)
+![Version](https://img.shields.io/badge/version-0.5.0a0-2563eb)
+![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
+![Platform](https://img.shields.io/badge/platform-Linux-111827?logo=linux)
+![Coverage gate](https://img.shields.io/badge/coverage%20gate-70%25-16a34a)
+![License](https://img.shields.io/badge/license-Proprietary-b91c1c)
+[![Stars](https://img.shields.io/github/stars/imedkablavi/Video-Forensics?style=flat&logo=github)](https://github.com/imedkablavi/Video-Forensics/stargazers)
+
+**Recover what the recorder still contains without pretending uncertainty is certainty.**
+
+[Reproducible demo](docs/DEMO.md) · [Support matrix](docs/SUPPORT_MATRIX.md) · [Validation](docs/VALIDATION.md) · [Roadmap](docs/ROADMAP.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
----
+<img src="docs/assets/vidrensic-hero.svg" width="100%" alt="Vidrensic forensic video platform">
 
-## The problem Vidrensic is built for
+> **Status — 0.5 alpha.** Vidrensic is under active forensic validation. It is not independently certified and must not be represented as a validated replacement for an organization’s required forensic procedures. The project deliberately labels unsupported, ambiguous and unvalidated operations instead of returning confident-looking output.
 
-Surveillance disks often do not behave like ordinary computer filesystems. A DVR/NVR may use a proprietary circular store, split one camera across thousands of fragments, interleave several channels, lose its index while video remains intact, change channel-slot ordering between recording intervals, store native timestamps outside the media payload, or contain a known Linux filesystem next to a raw proprietary video area.
+## Why Vidrensic exists
 
-Vidrensic is designed around those failure modes rather than around one recorder brand.
+CCTV evidence often survives after the recorder index does not. DVR/NVR disks may use proprietary circular stores, interleave cameras, fragment recordings, change logical channel slots over time, contain partially overwritten data, or place ordinary Linux filesystems beside raw video regions.
+
+Vidrensic treats those as **evidence reconstruction problems**, not ordinary file recovery.
 
 ```text
-Retail DVR/NVR model
+Recorder / OEM variant
         ↓
-Firmware / OEM variant
+Storage topology + filesystem family
         ↓
-Storage family
+Index / allocation evidence
         ↓
-Index / allocation structure
+Record / container framing
         ↓
-Record / container family
+Codec + native timestamp evidence
         ↓
-Codec + native timestamp variant
+Reconstruction strategy
         ↓
-Recovery strategy + validation evidence
+Validation + provenance
 ```
 
-That separation matters: two different brands may share an OEM storage format, while two models from the same brand may use different storage generations.
+## What makes it different
 
-> **Current release:** `0.4.0-alpha`. Core acquisition, WFS reconstruction, DHAV frame/channel recovery, source/storage profiling, media QC and selected format detection are implemented. The project remains under forensic validation and must not yet be represented as independently certified forensic software.
+Vidrensic is being designed around failure modes that make surveillance recovery difficult, not around a marketing list of recorder brands.
 
----
+- **Capability stages instead of a fake supported/not-supported flag.** A family can be detected or profiled without claiming validated recovery.
+- **Read-only evidence handling first.** Mounted or write-enabled block devices are rejected by default before parser work.
+- **Format + firmware variant awareness.** Vendor, filesystem, container, codec and timestamp evidence are kept separate.
+- **Ambiguity is evidence.** Competing fragment paths, uncertain camera mapping and incomplete timestamps remain explicit instead of being silently guessed.
+- **Native vs derived data stays separate.** Extracted native payloads, review derivatives, corrected time and cryptographic transforms carry their own provenance.
+- **Recovery is tested as an adversarial parser problem.** Bounds, malformed inputs, interrupted acquisition, races, corrupted metadata and packaging are part of CI.
+- **Public demo uses synthetic evidence.** A new contributor can exercise detection/recovery without downloading CCTV or trusting a screenshot.
 
-## Current format capability matrix
+### Design principles
 
-Vidrensic deliberately does **not** use a single misleading “supported” flag. Each family reports the highest implemented stage plus the concrete operations it can perform.
+- **Read-only first.** Evidence block devices are rejected by default when write-enabled or mounted.
+- **Format + variant aware.** A brand name is not treated as a format specification.
+- **Fail closed.** Recognition does not imply recovery support.
+- **Preserve ambiguity.** Candidate IDs are not silently promoted to physical camera identities.
+- **Native before review copies.** Original payload extraction and hashes stay separate from later presentation formats.
+- **Audit important transforms.** Acquisition, known-key crypto and case activity can emit reproducible receipts/audit records.
+- **Test the dangerous paths.** Parser bounds, malformed inputs, concurrency, source identity and packaging are part of CI.
 
-| Family | Stage | What works now | Main limitation |
+## 60-second start
+
+```bash
+git clone https://github.com/imedkablavi/Video-Forensics.git
+cd Video-Forensics
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -e '.[dev]'
+
+vidrensic --version
+vidrensic doctor
+vidrensic formats list
+```
+
+### Try it without any real evidence
+
+```bash
+bash examples/run_demo.sh
+```
+
+The demo creates a deterministic synthetic DHAV-like recorder source, ranks format evidence, recovers 12 structurally valid frames into two physical channels and emits a manifest. It is covered by a regression test so the public demo cannot silently rot as parsers evolve.
+
+Full walkthrough: [`docs/DEMO.md`](docs/DEMO.md).
+
+Triage an unknown image without writing to it:
+
+```bash
+vidrensic triage evidence.raw --out triage.json
+vidrensic formats detect evidence.raw --json
+```
+
+For a block device, inspect safety first:
+
+```bash
+vidrensic source inspect /dev/sdb --json
+```
+
+## What 0.5 adds
+
+The 0.5 hardening branch moves Vidrensic from a format-specific recovery prototype toward a forensic platform foundation:
+
+- streaming unknown-recorder triage and bounded/full signature hit maps;
+- human-readable byte sizes in CLI ranges;
+- streaming DHAV frame recovery with bounded memory;
+- DHAV extension metadata parsing and codec cross-checking;
+- WFS codec-neutral extraction with evidence-driven `.h264` / `.h265` / `.es` naming;
+- incomplete-tail reporting and fail-closed output handling;
+- read-only WFS detection enforcement;
+- full-disk ddrescue geometry/capacity preflight and FAT32 large-file protection;
+- ddrescue map parsing and acquisition verification receipts;
+- process-safe audit hash-chain writes and atomic job transitions;
+- CRC + geometry validated GPT parsing;
+- source identity fingerprints for safer resume workflows;
+- native-vs-derived time evidence and clock correction models;
+- file, JBOD/concatenation and RAID0 random-access reader foundations;
+- generic node-disjoint global reconstruction solver with ambiguity margin;
+- audited **known-key** AES-CBC/AES-CTR transformations with key fingerprinting;
+- `vidrensic doctor` dependency/runtime diagnostics;
+- expanded malformed-input, concurrency, crypto, acquisition and regression tests;
+- wheel/sdist build and installed-wheel smoke tests in CI.
+
+## Capability matrix
+
+Vidrensic does not use one misleading `supported=true` flag. Each family reports a maturity stage and concrete operations.
+
+| Family | Stage | Implemented now | Explicit limitation |
 |---|---:|---|---|
-| **WFS** | `RECONSTRUCT` | Detection, WFS timestamps/records, date scan, multi-stream fragment reconstruction, native HEVC extraction | Current framing is validated against the project corpus; global graph solving and frame-level overwrite salvage are pending |
-| **DHAV** | `RECONSTRUCT` | Header/footer validation, channel/frame/timestamp parsing, bounded carve, physical-order channel demux, native/ES hashes | Circular-wrap chronological solving and more extension variants are pending |
-| **Hikvision proprietary** | `PROFILE` | Dynamic `HIKVISION@HANGZHOU` Master Sector discovery and geometry plausibility analysis | HIKBTREE/data-block recording recovery is not claimed yet |
-| **Annex-B H.264/H.265** | `PARSE` | Stream-level detection by NAL/parameter-set evidence | No recorder/vendor or wall-clock identity is inferred from raw NAL units |
-| **MPEG-PS/PES** | `PARSE` | Program-stream/PES detection and generic media-layer handoff | Vendor timestamp/metadata variants require profiles |
-| **Known filesystems** | `PROFILE` | MBR/GPT + EXT/XFS/JFS/FAT/NTFS/exFAT/Btrfs/HFS+ signatures without mounting | A known filesystem does not prove where the surveillance video is stored |
+| **WFS** | `RECONSTRUCT` | detect/profile/date scan, observed WFS framing, local fragment-chain recovery, codec-neutral native extraction, media QC hooks | generic global solver exists but WFS path-dependent global state solving and frame-level overwrite salvage remain research/validation work |
+| **DHAV** | `RECONSTRUCT` | validated headers/footers, extension metadata, channel/frame/timestamp parsing, bounded streaming scan, physical-order channel demux, hashes | circular-wrap chronological reconstruction and broader variant/audio extraction validation remain incomplete |
+| **Hikvision proprietary** | `PROFILE` | `HIKVISION@HANGZHOU` Master Sector discovery and bounded geometry plausibility analysis | HIKBTREE/data-block variants are not claimed as validated recovery |
+| **Annex-B H.264/H.265** | `PARSE` | NAL/parameter-set evidence and codec hints | raw NAL units do not establish recorder identity or wall-clock time |
+| **MPEG-PS/PES** | `PARSE` | program-stream/PES detection and generic media handoff | vendor metadata/timestamp variants need profiles |
+| **Known filesystems** | `PROFILE` | MBR/GPT plus EXT/XFS/JFS/FAT/NTFS/exFAT/Btrfs/HFS+ signatures without mounting | finding a filesystem does not prove where surveillance recordings live |
 
-Run the live matrix from the installed build:
+Live capability output is authoritative:
 
 ```bash
 vidrensic formats list
 vidrensic formats list --json
 ```
 
-See [`docs/SUPPORT_MATRIX.md`](docs/SUPPORT_MATRIX.md) for failure-mode coverage and research targets such as WFH, IFS variants, Stream/Stream_db, TangoMagic, HIK/HIKSql generations, additional DHFS variants, TDFS, BJPEG, JDAT, Milefs and OEM/white-label recorder families.
+See [`docs/SUPPORT_MATRIX.md`](docs/SUPPORT_MATRIX.md) for failure-mode coverage.
 
----
-
-## Fail closed, not confident-looking
-
-Vidrensic distinguishes maturity and operations:
-
-```text
-NONE → DETECT → PROFILE → PARSE → RECONSTRUCT → VALIDATE → EXPORT
-```
-
-A family can be recognized without being recoverable. For example, the current Hikvision implementation can profile a Master Sector but cannot yet claim validated HIKBTREE recording recovery.
-
-Operations are tracked separately:
-
-```text
-detect
-profile
-date-scan
-stream-parse
-native-recover
-channel-demux
-media-qc
-forensic-export
-```
-
-If an operation is unavailable, the CLI rejects it explicitly. It does not convert “not implemented” into an empty result.
-
----
-
-## Ranked format detection
-
-Unknown media is evaluated by every active family plugin. Results include confidence and the evidence that produced it.
+## Unknown-recorder triage
 
 ```bash
-vidrensic formats detect evidence.raw
-vidrensic formats detect evidence.raw --json
+vidrensic triage /dev/sdX \
+  --out triage.json \
+  --sample-size 4MiB \
+  --sample-count 5
 ```
 
-Automatic selection is blocked when:
+A triage run combines bounded source sampling, storage profiling, ranked format detection and streaming signature mapping. It is intended to answer **what should be investigated next**, not to force a format classification.
 
-- the best confidence is below the minimum threshold; or
-- the best and second-best formats are too close.
-
-This prevents a raw H.264 signature inside a proprietary DVR store from automatically overriding stronger filesystem/record evidence.
-
----
-
-## Forensic pipeline
-
-```text
-┌───────────────────────────────────────┐
-│ Evidence Source                       │
-│ disk · image · clone · bounded range  │
-└──────────────────┬────────────────────┘
-                   │
-                   ▼
-┌───────────────────────────────────────┐
-│ Source Safety & Identity              │
-│ RO state · mounts · SMART · geometry  │
-└──────────────────┬────────────────────┘
-                   │
-                   ▼
-┌───────────────────────────────────────┐
-│ Storage / Evidence Profiling          │
-│ MBR/GPT · FS hits · hashes · entropy  │
-│ signatures · alignment hypotheses     │
-└──────────────────┬────────────────────┘
-                   │
-                   ▼
-┌───────────────────────────────────────┐
-│ Acquisition                           │
-│ ddrescue · selective ranges · resume  │
-└──────────────────┬────────────────────┘
-                   │
-                   ▼
-┌───────────────────────────────────────┐
-│ Ranked Format + Variant Resolution    │
-│ WFS · DHAV · HIK · Annex-B · PS · …   │
-└──────────────────┬────────────────────┘
-                   │
-                   ▼
-┌───────────────────────────────────────┐
-│ Reconstruction                        │
-│ index · timestamps · fragment graph   │
-│ channel demux · frame salvage         │
-└──────────────────┬────────────────────┘
-                   │
-                   ▼
-┌───────────────────────────────────────┐
-│ Native Extraction                     │
-│ original payloads · metadata · hashes │
-└──────────────────┬────────────────────┘
-                   │
-                   ▼
-┌───────────────────────────────────────┐
-│ QC / Validation                       │
-│ ffprobe · decode · timing · ambiguity │
-└──────────────────┬────────────────────┘
-                   │
-                   ▼
-┌───────────────────────────────────────┐
-│ Review Workstation                    │
-│ matrix · timeline · preview · KEEP    │
-└──────────────────┬────────────────────┘
-                   │
-                   ▼
-┌───────────────────────────────────────┐
-│ Evidence Export                       │
-│ native · review · manifest · report   │
-└───────────────────────────────────────┘
-```
-
----
-
-## Problems the architecture is designed to handle
-
-- missing or corrupt recorder index;
-- deleted/unindexed recordings whose data remains on disk;
-- circular recording stores and wrap points;
-- multiple cameras interleaved in one physical region;
-- channel/slot mapping that changes over time;
-- fragmented recordings;
-- partial/truncated records;
-- bad-sector gaps and interrupted acquisitions;
-- partially overwritten recordings;
-- timestamp gaps, backwards jumps and clock drift;
-- wrong interpreted FPS or playback duration;
-- broken MP4/MOV seek indexes;
-- damaged GOPs and missing codec parameter sets;
-- mixed codec/firmware variants;
-- proprietary container metadata;
-- unknown OEM/white-label recorders.
-
-Not all of these have reached production-capable implementation yet. [`docs/SUPPORT_MATRIX.md`](docs/SUPPORT_MATRIX.md) states which failure modes are currently implemented per family.
-
----
-
-## Case-first workflow
-
-### 1. Create a case
+For a dedicated signature map:
 
 ```bash
-vidrensic case create CASE-2026-001 \
-  --root /cases \
-  --examiner "Examiner"
+vidrensic profile hitmap evidence.raw \
+  --range-size 2GiB \
+  --out hitmap.json
 ```
 
-A case keeps evidence metadata, acquisitions, native/review derivatives, jobs, logs, reports and exports separated.
+## Acquisition and verification
 
-### 2. Inspect source safety
-
-```bash
-vidrensic source inspect /dev/sdb --json
-```
-
-Block devices are expected to be read-only and unmounted. Child partitions are checked too.
-
-### 3. Capture SMART/device identity
-
-```bash
-vidrensic source smart /dev/sdb \
-  --out /cases/CASE-2026-001/evidence/source-smart.json \
-  --case /cases/CASE-2026-001
-```
-
-### 4. Map conventional storage without mounting it
-
-```bash
-vidrensic profile storage /dev/sdb \
-  --out /cases/CASE-2026-001/evidence/storage-map.json \
-  --case /cases/CASE-2026-001
-```
-
-### 5. Build a bounded generic profile
-
-```bash
-vidrensic profile source /dev/sdb \
-  --sample-size 4194304 \
-  --sample-count 5 \
-  --out /cases/CASE-2026-001/evidence/source-profile.json \
-  --case /cases/CASE-2026-001
-```
-
-### 6. Rank active format families
-
-```bash
-vidrensic formats detect /dev/sdb --json
-```
-
-### 7. Acquire safely with ddrescue
+Plan or run GNU ddrescue while retaining its resumable map:
 
 ```bash
 vidrensic acquire plan /dev/sdb \
-  --output /cases/CASE-2026-001/acquisitions/range.raw \
-  --map /cases/CASE-2026-001/acquisitions/range.map \
-  --offset 1122820554752 \
-  --size 12582912000
+  --output acquisition.raw \
+  --map acquisition.map
 
 vidrensic acquire run /dev/sdb \
-  --output /cases/CASE-2026-001/acquisitions/range.raw \
-  --map /cases/CASE-2026-001/acquisitions/range.map \
-  --offset 1122820554752 \
-  --size 12582912000 \
-  --case /cases/CASE-2026-001
+  --output acquisition.raw \
+  --map acquisition.map \
+  --case /cases/CASE-001
 ```
 
-The GNU ddrescue map is retained for resume. Vidrensic does not repair the source filesystem.
+Verify the resulting output/map and emit a receipt:
 
----
+```bash
+vidrensic acquire verify /dev/sdb \
+  --output acquisition.raw \
+  --map acquisition.map \
+  --receipt acquisition-receipt.json
+```
+
+The receipt distinguishes finished, bad-sector, non-tried, non-trimmed and non-scraped map regions; records source/range geometry; and can hash both the map and output. An unresolved or unhashed acquisition is not silently labeled complete.
 
 ## WFS workflow
 
-Profile an uncertain alignment before assuming a data layout:
+Profile uncertain alignment first:
 
 ```bash
 vidrensic profile wfs-layout evidence.raw \
-  --range-start 0 \
-  --range-size 67108864 \
+  --range-size 64MiB \
   --out wfs-layout.json
 ```
 
-The result intentionally distinguishes:
-
-```text
-fragment alignment residue ≠ proven absolute WFS data-area start
-```
-
-Scan a known/validated WFS layout:
+Scan a validated layout:
 
 ```bash
 vidrensic scan evidence.raw \
@@ -305,7 +218,7 @@ vidrensic scan evidence.raw \
   --data-offset 64094208
 ```
 
-Recover one simultaneous recording boundary:
+Recover one simultaneous boundary:
 
 ```bash
 vidrensic recover wfs evidence.raw \
@@ -316,171 +229,147 @@ vidrensic recover wfs evidence.raw \
   --data-offset 64094208
 ```
 
-Outputs use neutral candidate IDs. A reconstruction slot is never silently promoted to a physical camera identity.
-
----
+Codec naming is evidence-driven. Strong H.264 parameter-set evidence produces `.h264`, strong HEVC evidence produces `.h265`, and uncertain elementary video remains `.es` with a review reason.
 
 ## DHAV workflow
 
-Detect DHAV evidence:
+```bash
+vidrensic formats detect dahua-or-oem.raw --json
+vidrensic recover dhav dahua-or-oem.raw --out recovered/dhav
+```
+
+Native DHAV frames are preserved by channel and elementary-stream derivatives are hashed. Physical ordering is preserved; it is **not** automatically presented as chronological order across a circular wrap.
+
+## Known-key encrypted data
+
+Vidrensic 0.5 includes an auditable cryptographic primitive layer, not a universal “decrypt DVR” button.
 
 ```bash
-vidrensic formats detect dahua-or-oem.raw
+vidrensic decrypt aes encrypted.bin \
+  --output decrypted.bin \
+  --mode cbc \
+  --key-file key.bin \
+  --iv-hex 00112233445566778899aabbccddeeff \
+  --padding pkcs7 \
+  --receipt crypto-receipt.json
 ```
 
-Carve validated frames and demultiplex channels while preserving physical ordering:
+Supported primitive modes currently include AES-CBC and AES-CTR with 128/192/256-bit known keys. Receipts record key fingerprints and transform metadata, **never the key bytes**. Vendor-specific key discovery/derivation is not claimed unless a format profile explicitly implements and validates it.
 
-```bash
-vidrensic recover dhav dahua-or-oem.raw \
-  --out recovered/dhav
-```
+## Time evidence
 
-Output example:
+Recorder-native time and corrected/reference time are separate evidence classes. Unknown recorder timezone remains unknown. Clock correction is derived from explicit anchors and records offset/drift/residual information rather than overwriting the native timestamp.
 
-```text
-recovered/dhav/
-├── channel_00.native.dhav
-├── channel_00.video.es
-├── channel_01.native.dhav
-├── channel_01.video.es
-└── dhav_manifest.json
-```
+## Reconstruction engine
 
-The manifest records physical offsets, frame/channel statistics, timestamp/frame-number discontinuities, codec hints and SHA-256/SHA-512 hashes. Physical order does **not** claim chronological order across a circular wrap.
+The format-neutral recovery layer includes a node-disjoint global solver for competing fragment paths. It optimizes the supplied graph across all starts instead of choosing one camera greedily at a time, and it can measure an alternative-solution margin.
 
----
+That solver is a foundation. WFS still needs a validated path-dependent state graph before the global solver can replace all local continuation logic.
 
-## Hikvision status
-
-The 0.4 profiler dynamically searches for `HIKVISION@HANGZHOU` Master Sector candidates and evaluates capacity, video-data geometry, block geometry, HIKBTREE fields and initialization-time plausibility.
-
-```bash
-vidrensic formats detect hikvision-image.raw --json
-```
-
-Current capability is intentionally `PROFILE`, not `RECONSTRUCT`. A command requiring a date timeline is blocked until HIKBTREE/data-block variants are implemented and validated.
-
----
-
-## Model / firmware profiles
-
-Structural support and product-model hints are separated from executable parser code.
-
-```bash
-vidrensic profiles list
-vidrensic profiles match --vendor Hikvision --model MODEL --firmware VERSION
-vidrensic profiles validate-pack new-model-profiles.json
-```
-
-External profile packs are JSON data. They do not install arbitrary Python/shell code.
-
-New model onboarding follows [`docs/FORMAT_ONBOARDING.md`](docs/FORMAT_ONBOARDING.md).
-
----
-
-## Media validation states
+## Validation states
 
 | State | Meaning |
 |---|---|
-| `PASS` | Required validation ran and no hard or unresolved ambiguity remains |
-| `REVIEW` | A candidate exists but evidence is incomplete, ambiguous or needs examiner review |
+| `PASS` | Required validation actually ran and no unresolved hard condition remains |
+| `REVIEW` | Candidate exists but ambiguity, missing evidence or a diagnostic concern remains |
 | `FAIL` | Structural, decoding, timing or integrity evidence is strongly inconsistent |
-| `UNKNOWN` | Required validation has not yet run |
+| `UNKNOWN` | Required validation has not run |
 
-A one-hour duration alone is never a PASS. A successful beginning/middle/end decode is useful triage evidence but is not a full decode.
+A one-hour duration is not a PASS by itself.
 
-```bash
-vidrensic qc fast recovered.mp4 \
-  --expected-duration 3600 \
-  --report qc-fast.json
+## QA and release gates
 
-vidrensic qc full recovered.mp4 \
-  --expected-duration 3600 \
-  --report qc-full.json
+CI runs on Python 3.11, 3.12 and 3.13 and currently gates:
+
+```text
+ruff
+compileall
+unit + synthetic regression tests
+malformed-input safety tests
+coverage >= 70%
+CLI smoke tests
+package import tests
+sdist + wheel build
+pip dependency checks
+fresh installation of the built wheel
+built-wheel smoke tests
+public synthetic demo regression
 ```
 
----
+See [`docs/VALIDATION.md`](docs/VALIDATION.md) for validation scope and release expectations.
 
-## Safety rules
-
-1. **Never repair the evidence source.**
-2. **Prefer a hardware write blocker; enforce software read-only checks as an additional control.**
-3. **Reject mounted/write-enabled block sources by default.**
-4. **Record important operations in case audit/job state.**
-5. **Treat signatures as evidence, not certainty.**
-6. **Preserve ambiguity instead of forcing a camera/fragment match.**
-7. **Keep native data separate from review/transcoded copies.**
-8. **Never invent missing timestamps.** Derived/corrected timelines must remain labeled as derived.
-9. **Bound parser-controlled lengths, offsets and table counts.**
-10. **Do not advertise a model as recoverable when only detection/profiling is implemented.**
-
----
-
-## Repository layout
+## Repository map
 
 ```text
 vidrensic/
-├── acquisition/       source safety, SMART and ddrescue
-├── core/              case, audit, jobs, hashes and models
-├── media/             ffprobe/decode QC
-├── profiler/          source and storage profiling
-├── profiles/          data-driven model/firmware variants
-├── plugins/
-│   ├── wfs/
-│   ├── dhav/
-│   ├── hikvision/
-│   ├── annexb/
-│   └── mpegps/
-└── recovery/          format-neutral reconstruction graph primitives
+├── acquisition/       source safety, SMART, ddrescue maps + receipts
+├── core/              case, audit, jobs, provenance, time and hashes
+├── crypto/            audited known-key crypto primitives
+├── io/                file/JBOD/RAID0 random-access readers
+├── media/             ffprobe/decode QC + elementary stream helpers
+├── profiler/          source, storage, hit-map and triage analysis
+├── profiles/          model/firmware data profiles
+├── plugins/           WFS, DHAV, Hikvision, Annex-B, MPEG-PS
+└── recovery/          graph + global solver foundations
 
-docs/
-├── ARCHITECTURE.md
-├── FORENSIC_POLICY.md
-├── FORMAT_ONBOARDING.md
-├── ROADMAP.md
-└── SUPPORT_MATRIX.md
-
-tests/                 synthetic + regression fixtures
-.github/workflows/      CI across Python 3.11/3.12/3.13
+examples/              deterministic synthetic public demo
+docs/                  architecture, policy, support, demo, validation
+.github/                CI, issue forms, ownership and contribution workflow
+CITATION.cff            citation metadata for research/tool references
 ```
 
----
+## Forensic safety rules
 
-## Next engineering milestones
+1. Never repair the evidence source.
+2. Prefer a hardware write blocker; software read-only checks are an additional control.
+3. Reject mounted/write-enabled block sources by default.
+4. Preserve native artifacts and hashes separately from review copies.
+5. Treat signatures as evidence, not certainty.
+6. Preserve ambiguity instead of inventing camera/fragment identity.
+7. Never invent missing timestamps or timezone evidence.
+8. Bound parser-controlled lengths, offsets and table counts.
+9. Never store cryptographic key bytes in logs or receipts.
+10. Do not advertise a family/model as recoverable when only detection or profiling exists.
 
-- scalable streaming hit maps for multi-terabyte media;
-- WFS absolute data-area discovery using stronger metadata evidence;
-- WFS global weighted fragment graph solver;
-- frame-level salvage for partial overwrite and bad-sector gaps;
-- DHAV circular-wrap chronological reconstruction;
-- Hikvision HIKBTREE/data-block parser with firmware profiles;
-- WFH/IFS/Stream/TangoMagic family research and fixtures;
-- decoder/keyframe/corruption maps;
-- RAID/JBOD and multi-disk recorder source sets;
+## Contributing
+
+High-value contributions include parser fixtures, corruption cases, format documentation, test vectors, safety hardening and reproducible bug reports. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+Have a recorder/firmware variant Vidrensic does not understand yet? Use the **New DVR / NVR format request** issue form and read [`docs/SAMPLE_SUBMISSION.md`](docs/SAMPLE_SUBMISSION.md) before sharing any sample material. Never upload active-case CCTV, credentials or cryptographic keys to a public issue.
+
+Security issues should follow [`SECURITY.md`](SECURITY.md), not a public issue.
+
+Research users can cite the project through [`CITATION.cff`](CITATION.cff); once that file is present on the public default branch GitHub can expose its citation metadata directly.
+
+If Vidrensic is useful to your research or lab work, a GitHub star helps other practitioners discover the project.
+
+## Roadmap
+
+Near-term engineering priorities:
+
+- WFS path-dependent global reconstruction graph;
+- frame-level partial-overwrite salvage;
+- DHAV chronological circular-wrap reconstruction and audio extraction validation;
+- Hikvision HIKBTREE/data-block variant parsers backed by real fixtures;
+- E01/Ex01/AFF4 adapter strategy with independent verification;
+- RAID parity and recorder-specific multi-disk hypotheses;
 - synchronized multi-camera review workstation;
-- sticky preview, thumbnails, frame stepping, ±5s seek and high-speed playback;
-- safe KEEP/review/cleanup workflow;
-- native vs review-copy export profiles;
-- signed manifests, HTML/PDF technical reports and chain-of-custody packages;
-- formal validation corpus and release qualification.
+- forensic export/report packages and stronger signed provenance;
+- larger known-good + intentionally corrupted validation corpus.
 
----
+Full roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-## Ownership & licensing
+## Ownership and license
 
-**Project owner / lead developer:** `@imedkablavi`
+Project owner / lead developer: [`@imedkablavi`](https://github.com/imedkablavi)
 
 Copyright © 2026 imedkablavi. All rights reserved.
 
-Vidrensic is **proprietary software**. Repository access does not grant permission to redistribute, sublicense, sell, publish, host, or incorporate the source into another product. See [`LICENSE`](LICENSE), [`NOTICE.md`](NOTICE.md) and [`AUTHORS.md`](AUTHORS.md).
+Vidrensic is proprietary software. Repository visibility does not grant permission to redistribute, sublicense, sell, publish, host or incorporate the source into another product. See [`LICENSE`](LICENSE), [`NOTICE.md`](NOTICE.md) and [`AUTHORS.md`](AUTHORS.md).
 
-The current product name is a working commercial identity. Initial public searching did not reveal an obvious exact software-name conflict, but this is not formal trademark clearance. Commercial launch should include legal/trademark review.
+Public launch settings and owner-only decisions are tracked in [`docs/PUBLIC_LAUNCH.md`](docs/PUBLIC_LAUNCH.md).
 
 ---
-
-## Validation notice
-
-Functional code is not sufficient for forensic qualification. Production/evidentiary use requires versioned known-good and deliberately corrupted media, documented expected results, hashes, parser limits, repeatability tests and organization-specific validation procedures.
 
 <div align="center">
 
