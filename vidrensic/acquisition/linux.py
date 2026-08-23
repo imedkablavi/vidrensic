@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import json
 import os
 import stat
 import subprocess
@@ -17,6 +18,9 @@ class SourceInfo:
     mounted_at: tuple[str, ...]
     major: int | None = None
     minor: int | None = None
+    serial: str | None = None
+    wwn: str | None = None
+    model: str | None = None
 
     @property
     def safe_for_forensic_read(self) -> bool:
@@ -91,6 +95,49 @@ def _mounted_paths(device_ids: set[str]) -> tuple[str, ...]:
     return tuple(sorted(set(mounts)))
 
 
+def _clean_identity(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
+
+
+def _block_identity(path: Path) -> tuple[str | None, str | None, str | None]:
+    """Return best-effort serial/WWN/model hints without changing the device.
+
+    These fields improve resume identity across device-node renumbering, but some
+    USB bridges, virtual devices and storage stacks legitimately expose none of
+    them. Callers must retain a weaker-identity path for those cases rather than
+    inventing identifiers.
+    """
+
+    try:
+        proc = subprocess.run(
+            ["lsblk", "-J", "-d", "-o", "SERIAL,WWN,MODEL", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None, None, None
+    if proc.returncode != 0 or len(proc.stdout) > 1024 * 1024:
+        return None, None, None
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None, None, None
+    rows = payload.get("blockdevices") if isinstance(payload, dict) else None
+    if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+        return None, None, None
+    row = rows[0]
+    return (
+        _clean_identity(row.get("serial")),
+        _clean_identity(row.get("wwn")),
+        _clean_identity(row.get("model")),
+    )
+
+
 def inspect_source(path: Path) -> SourceInfo:
     path = path.expanduser().resolve()
     if not path.exists():
@@ -98,12 +145,14 @@ def inspect_source(path: Path) -> SourceInfo:
 
     st = path.stat()
     is_block = stat.S_ISBLK(st.st_mode)
+    serial = wwn = model = None
     if is_block:
         major = os.major(st.st_rdev)
         minor = os.minor(st.st_rdev)
         size = _block_size(path)
         ro = _sysfs_ro(major, minor)
         mounts = _mounted_paths(_device_ids(path, major, minor))
+        serial, wwn, model = _block_identity(path)
     else:
         major = minor = None
         size = st.st_size
@@ -119,6 +168,9 @@ def inspect_source(path: Path) -> SourceInfo:
         mounted_at=mounts,
         major=major,
         minor=minor,
+        serial=serial,
+        wwn=wwn,
+        model=model,
     )
 
 
