@@ -13,6 +13,10 @@ import uuid
 
 SCHEMA_VERSION = 1
 PRIVATE_FILE_MODE = 0o600
+MAX_JOB_JSON_CHARS = 1024 * 1024
+MAX_JOB_ERROR_CHARS = 64 * 1024
+MAX_JOB_KIND_CHARS = 256
+MAX_JOB_ID_CHARS = 128
 
 
 class JobStatus(StrEnum):
@@ -47,6 +51,26 @@ class JobRecord:
         return min(1.0, max(0.0, self.progress_current / self.progress_total))
 
 
+_SAFE_PROJECTION = f"""
+    job_id,
+    kind,
+    status,
+    created_utc,
+    updated_utc,
+    CASE WHEN length(parameters_json) <= {MAX_JOB_JSON_CHARS}
+         THEN parameters_json ELSE NULL END AS parameters_json,
+    CASE WHEN length(checkpoint_json) <= {MAX_JOB_JSON_CHARS}
+         THEN checkpoint_json ELSE NULL END AS checkpoint_json,
+    progress_current,
+    progress_total,
+    CASE WHEN error IS NULL OR length(error) <= {MAX_JOB_ERROR_CHARS}
+         THEN error ELSE NULL END AS error,
+    length(parameters_json) AS parameters_chars,
+    length(checkpoint_json) AS checkpoint_chars,
+    CASE WHEN error IS NULL THEN 0 ELSE length(error) END AS error_chars
+"""
+
+
 class JobStore:
     """Crash-resistant SQLite store for resumable forensic jobs.
 
@@ -54,6 +78,10 @@ class JobStore:
     in normal case directories and retain their own hashes/provenance. State
     transitions use `BEGIN IMMEDIATE` and compare the previous status in the
     UPDATE so competing processes cannot both finalize the same stale state.
+
+    Job JSON/error fields are explicitly size-bounded. Reads use SQLite CASE
+    expressions so a tampered oversized JSON/error field is not materialized into
+    Python before the store rejects the row.
     """
 
     def __init__(self, path: Path):
@@ -112,7 +140,36 @@ class JobStore:
 
     @staticmethod
     def _json(value: dict[str, Any]) -> str:
-        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        if not isinstance(value, dict):
+            raise ValueError("job metadata must be an object")
+        try:
+            serialized = json.dumps(
+                value,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+        except (TypeError, ValueError, RecursionError) as exc:
+            raise ValueError("job metadata must be JSON-serializable") from exc
+        if len(serialized) > MAX_JOB_JSON_CHARS:
+            raise ValueError(
+                f"job metadata exceeds {MAX_JOB_JSON_CHARS} characters"
+            )
+        return serialized
+
+    @staticmethod
+    def _parse_json_object(value: str | None, *, field: str, stored_chars: int) -> dict[str, Any]:
+        if stored_chars > MAX_JOB_JSON_CHARS or value is None:
+            raise ValueError(
+                f"stored job {field} exceeds {MAX_JOB_JSON_CHARS} characters"
+            )
+        try:
+            parsed = json.loads(value)
+        except (json.JSONDecodeError, RecursionError) as exc:
+            raise ValueError(f"stored job {field} is invalid JSON") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError(f"stored job {field} must be a JSON object")
+        return parsed
 
     @staticmethod
     def _validate_progress(current: int | None, total: int | None) -> None:
@@ -123,6 +180,27 @@ class JobStore:
         if current is not None and total is not None and current > total:
             raise ValueError("progress_current cannot exceed progress_total")
 
+    @staticmethod
+    def _validate_kind(kind: str) -> None:
+        if not isinstance(kind, str) or not kind.strip():
+            raise ValueError("job kind cannot be empty")
+        if len(kind) > MAX_JOB_KIND_CHARS:
+            raise ValueError(f"job kind exceeds {MAX_JOB_KIND_CHARS} characters")
+
+    @staticmethod
+    def _validate_identifier(identifier: str) -> None:
+        if not isinstance(identifier, str) or not identifier:
+            raise ValueError("job_id must be a non-empty string")
+        if len(identifier) > MAX_JOB_ID_CHARS:
+            raise ValueError(f"job_id exceeds {MAX_JOB_ID_CHARS} characters")
+
+    @staticmethod
+    def _safe_row(conn: sqlite3.Connection, job_id: str) -> sqlite3.Row | None:
+        return conn.execute(
+            f"SELECT {_SAFE_PROJECTION} FROM jobs WHERE job_id=?",
+            (job_id,),
+        ).fetchone()
+
     def create(
         self,
         kind: str,
@@ -131,9 +209,11 @@ class JobStore:
         checkpoint: dict[str, Any] | None = None,
         job_id: str | None = None,
     ) -> JobRecord:
-        if not kind.strip():
-            raise ValueError("job kind cannot be empty")
+        self._validate_kind(kind)
         identifier = job_id or str(uuid.uuid4())
+        self._validate_identifier(identifier)
+        parameters_json = self._json(parameters)
+        checkpoint_json = self._json(checkpoint or {})
         now = self._now()
         with self._connect() as conn:
             conn.execute(
@@ -150,15 +230,16 @@ class JobStore:
                     JobStatus.PENDING.value,
                     now,
                     now,
-                    self._json(parameters),
-                    self._json(checkpoint or {}),
+                    parameters_json,
+                    checkpoint_json,
                 ),
             )
         return self.get(identifier)
 
     def get(self, job_id: str) -> JobRecord:
+        self._validate_identifier(job_id)
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+            row = self._safe_row(conn, job_id)
         if row is None:
             raise KeyError(f"unknown job: {job_id}")
         return self._from_row(row)
@@ -178,10 +259,11 @@ class JobStore:
             clauses.append("status=?")
             values.append(status.value)
         if kind is not None:
+            self._validate_kind(kind)
             clauses.append("kind=?")
             values.append(kind)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        query = f"SELECT * FROM jobs{where} ORDER BY created_utc DESC LIMIT ?"
+        query = f"SELECT {_SAFE_PROJECTION} FROM jobs{where} ORDER BY created_utc DESC LIMIT ?"
         values.append(limit)
         with self._connect() as conn:
             rows = conn.execute(query, values).fetchall()
@@ -200,8 +282,10 @@ class JobStore:
         return self._set_status(job_id, JobStatus.CANCELLED)
 
     def fail(self, job_id: str, error: str) -> JobRecord:
-        if not error:
+        if not isinstance(error, str) or not error:
             raise ValueError("error cannot be empty")
+        if len(error) > MAX_JOB_ERROR_CHARS:
+            raise ValueError(f"job error exceeds {MAX_JOB_ERROR_CHARS} characters")
         return self._set_status(job_id, JobStatus.FAILED, error=error)
 
     def _set_status(
@@ -211,6 +295,9 @@ class JobStore:
         *,
         error: str | None = None,
     ) -> JobRecord:
+        self._validate_identifier(job_id)
+        if error is not None and len(error) > MAX_JOB_ERROR_CHARS:
+            raise ValueError(f"job error exceeds {MAX_JOB_ERROR_CHARS} characters")
         allowed = {
             JobStatus.PENDING: {JobStatus.RUNNING, JobStatus.CANCELLED, JobStatus.FAILED},
             JobStatus.RUNNING: {
@@ -223,7 +310,7 @@ class JobStore:
         }
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+            row = self._safe_row(conn, job_id)
             if row is None:
                 raise KeyError(f"unknown job: {job_id}")
             existing = self._from_row(row)
@@ -250,9 +337,11 @@ class JobStore:
         progress_current: int | None = None,
         progress_total: int | None = None,
     ) -> JobRecord:
+        self._validate_identifier(job_id)
+        checkpoint_json = self._json(value)
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+            row = self._safe_row(conn, job_id)
             if row is None:
                 raise KeyError(f"unknown job: {job_id}")
             existing = self._from_row(row)
@@ -268,7 +357,7 @@ class JobStore:
                 WHERE job_id=? AND status=?
                 """,
                 (
-                    self._json(value),
+                    checkpoint_json,
                     current,
                     total,
                     self._now(),
@@ -282,14 +371,29 @@ class JobStore:
 
     @staticmethod
     def _from_row(row: sqlite3.Row) -> JobRecord:
+        parameters = JobStore._parse_json_object(
+            row["parameters_json"],
+            field="parameters",
+            stored_chars=int(row["parameters_chars"]),
+        )
+        checkpoint = JobStore._parse_json_object(
+            row["checkpoint_json"],
+            field="checkpoint",
+            stored_chars=int(row["checkpoint_chars"]),
+        )
+        error_chars = int(row["error_chars"])
+        if error_chars > MAX_JOB_ERROR_CHARS:
+            raise ValueError(
+                f"stored job error exceeds {MAX_JOB_ERROR_CHARS} characters"
+            )
         return JobRecord(
             job_id=row["job_id"],
             kind=row["kind"],
             status=JobStatus(row["status"]),
             created_utc=row["created_utc"],
             updated_utc=row["updated_utc"],
-            parameters=json.loads(row["parameters_json"]),
-            checkpoint=json.loads(row["checkpoint_json"]),
+            parameters=parameters,
+            checkpoint=checkpoint,
             progress_current=row["progress_current"],
             progress_total=row["progress_total"],
             error=row["error"],
