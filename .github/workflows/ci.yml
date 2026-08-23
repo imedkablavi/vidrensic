@@ -84,7 +84,7 @@ jobs:
       - name: Validate distribution metadata
         if: matrix.python-version == '3.12'
         run: |
-          python -m pip install twine
+          python -m pip install 'twine==7.0.0'
           python -m twine check dist/*.whl dist/*.tar.gz
 
       - name: Smoke test built wheel
@@ -97,6 +97,38 @@ jobs:
           vidrensic validate corpus validation_corpus/corpus.json --out wheel-validation-report.json
           python -c "from vidrensic.crypto import KeyMaterial; print(KeyMaterial(b'0' * 16).fingerprint_sha256[:8])"
 
+      - name: Smoke test release CycloneDX SBOM generation
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m pip install 'cyclonedx-bom==7.3.1'
+          python -m venv .sbom-ci-env
+          .sbom-ci-env/bin/python -m pip install --upgrade pip
+          .sbom-ci-env/bin/python -m pip install dist/*.whl
+          .sbom-ci-env/bin/python -m pip check
+          .sbom-ci-env/bin/python -m pip freeze | \
+            cyclonedx-py requirements \
+              --pyproject pyproject.toml \
+              --mc-type library \
+              --spec-version 1.6 \
+              --output-reproducible \
+              --output-format JSON \
+              --output-file ci-sbom.cdx.json \
+              -
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('ci-sbom.cdx.json').read_text(encoding='utf-8'))
+          assert data.get('bomFormat') == 'CycloneDX'
+          assert data.get('specVersion') == '1.6'
+          names = {
+              str(item.get('name', '')).lower()
+              for item in data.get('components', [])
+              if isinstance(item, dict)
+          }
+          assert 'vidrensic' in names
+          PY
+
       - name: Upload coverage and validation artifacts
         if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -107,5 +139,6 @@ jobs:
             validation-report.json
             wheel-validation-report.json
             solver-profile.json
+            ci-sbom.cdx.json
           if-no-files-found: error
           retention-days: 14
