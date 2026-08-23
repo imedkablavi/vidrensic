@@ -18,7 +18,11 @@ def _hypotheses(starts: int, options: int) -> dict[int, tuple[WFSPathHypothesis,
         start = index + 1
         rows = []
         for choice in range(options):
-            shared = 1000 + choice if choice < max(1, options // 2) else 10_000 + index * 100 + choice
+            shared = (
+                1000 + choice
+                if choice < max(1, options // 2)
+                else 10_000 + index * 100 + choice
+            )
             rows.append(
                 WFSPathHypothesis(
                     start_fragment=start,
@@ -64,9 +68,12 @@ def main() -> int:
     )
     branch_bound_ms = (perf_counter() - started) * 1000.0
 
-    same_selection = tuple(item.fragments for item in production.hypotheses) == tuple(
+    same_selection_observed = tuple(item.fragments for item in production.hypotheses) == tuple(
         item.fragments for item in branch_bound.hypotheses
     )
+    searches_complete = not production.search_truncated and not branch_bound.truncated
+    selection_equivalent = same_selection_observed and searches_complete
+
     report = {
         "schema_version": 1,
         "fixture": {
@@ -88,17 +95,19 @@ def main() -> int:
             "pruned_bound": branch_bound.pruned_bound,
             "truncated": branch_bound.truncated,
         },
-        "selection_equivalent": same_selection,
+        "same_selection_observed": same_selection_observed,
+        "searches_complete": searches_complete,
+        "selection_equivalent": selection_equivalent,
         "claim_limits": [
             "timing is runner-specific and is not a product performance guarantee",
             "the branch-and-bound selector is a reference path and is not used by production recovery",
             "synthetic hypothesis equivalence does not replace real-recorder validation",
-            "a truncated selector result is not an optimum claim",
+            "a truncated selector result is not an optimum or equivalence claim",
         ],
     }
     args.out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
-    if not same_selection:
+    if not selection_equivalent:
         return 2
     return 0
 
