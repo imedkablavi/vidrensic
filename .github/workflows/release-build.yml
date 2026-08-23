@@ -144,7 +144,7 @@ jobs:
           from pathlib import Path
 
           manifest = {
-              'schema_version': 3,
+              'schema_version': 4,
               'product': 'Vidrensic',
               'ref': os.environ.get('GITHUB_REF_NAME'),
               'commit': os.environ.get('GITHUB_SHA'),
@@ -161,8 +161,8 @@ jobs:
                   'sbom': 'CycloneDX 1.6 generated from an isolated environment containing the built wheel and its resolved runtime dependencies',
               },
               'publication_policy': {
-                  'workflow_dispatch': 'qualification artifact only; no release-signature claim',
-                  'tag': 'publish job must Sigstore-sign and verify the qualified payload before GitHub Release upload',
+                  'workflow_dispatch': 'qualification artifact only; no release-signature or provenance-attestation claim',
+                  'tag': 'publish job must create GitHub provenance/SBOM attestations, Sigstore-sign and verify the qualified payload before GitHub Release upload',
               },
           }
           Path('dist/BUILD-MANIFEST.json').write_text(
@@ -193,6 +193,8 @@ jobs:
     timeout-minutes: 20
     permissions:
       actions: read
+      artifact-metadata: write
+      attestations: write
       contents: write
       id-token: write
     steps:
@@ -219,6 +221,17 @@ jobs:
             --dir release-dist
           test -f release-dist/SHA256SUMS.txt
           (cd release-dist && sha256sum -c SHA256SUMS.txt)
+
+      - name: Create GitHub SLSA build provenance attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: 'release-dist/*'
+
+      - name: Create GitHub SBOM attestation for built wheel
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: 'release-dist/*.whl'
+          sbom-path: 'release-dist/SBOM.cdx.json'
 
       - name: Sign qualified payload with Sigstore keyless identity
         run: |
