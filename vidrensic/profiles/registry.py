@@ -4,10 +4,15 @@ from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
-import json
+
+from vidrensic.core.json_limits import BoundedJSONError, load_bounded_json
 
 
 PROFILE_SCHEMA_VERSION = 1
+MAX_PROFILE_PACK_BYTES = 4 * 1024 * 1024
+MAX_PROFILES_PER_PACK = 1024
+MAX_PROFILE_LIST_ITEMS = 128
+MAX_PROFILE_TEXT_CHARS = 4096
 
 
 def _norm(value: str | None) -> str:
@@ -21,6 +26,33 @@ def _matches(value: str | None, patterns: tuple[str, ...]) -> bool:
     if not candidate:
         return False
     return any(fnmatchcase(candidate, pattern.casefold()) for pattern in patterns)
+
+
+def _profile_text(value: Any, field_name: str) -> str:
+    if not isinstance(value, str):
+        value = str(value)
+    if not value.strip():
+        raise ValueError(f"{field_name} cannot be empty")
+    if len(value) > MAX_PROFILE_TEXT_CHARS:
+        raise ValueError(f"{field_name} exceeds {MAX_PROFILE_TEXT_CHARS} characters")
+    return value
+
+
+def _profile_string_list(value: Any, field_name: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list of strings")
+    if len(value) > MAX_PROFILE_LIST_ITEMS:
+        raise ValueError(f"{field_name} exceeds {MAX_PROFILE_LIST_ITEMS} entries")
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"{field_name} must contain only strings")
+        if len(item) > MAX_PROFILE_TEXT_CHARS:
+            raise ValueError(
+                f"{field_name} entry exceeds {MAX_PROFILE_TEXT_CHARS} characters"
+            )
+        result.append(item)
+    return tuple(result)
 
 
 @dataclass(frozen=True)
@@ -120,7 +152,17 @@ class ProfileRegistry:
         return tuple(rows)
 
     def load_pack(self, path: Path) -> tuple[VariantProfile, ...]:
-        data = json.loads(path.expanduser().read_text(encoding="utf-8"))
+        try:
+            data = load_bounded_json(
+                path,
+                max_bytes=MAX_PROFILE_PACK_BYTES,
+                max_depth=32,
+                max_nodes=100_000,
+                max_string_chars=64 * 1024,
+                label="profile pack",
+            )
+        except BoundedJSONError as exc:
+            raise ValueError(str(exc)) from exc
         if not isinstance(data, dict):
             raise ValueError("profile pack must be a JSON object")
         if data.get("schema_version") != PROFILE_SCHEMA_VERSION:
@@ -128,6 +170,9 @@ class ProfileRegistry:
         raw_profiles = data.get("profiles")
         if not isinstance(raw_profiles, list):
             raise ValueError("profile pack must contain a profiles list")
+        if len(raw_profiles) > MAX_PROFILES_PER_PACK:
+            raise ValueError(f"profile pack exceeds {MAX_PROFILES_PER_PACK} profiles")
+
         loaded: list[VariantProfile] = []
         for item in raw_profiles:
             if not isinstance(item, dict):
@@ -139,16 +184,30 @@ class ProfileRegistry:
             parameters = item.get("parameters", {})
             if not isinstance(parameters, dict):
                 raise ValueError("profile parameters must be an object")
+
+            profile_id = _profile_text(item["profile_id"], "profile_id")
+            family_id = _profile_text(item["family_id"], "family_id")
+            variant = _profile_text(item.get("variant") or profile_id, "variant")
+            validation_state = _profile_text(
+                item.get("validation_state", "experimental"),
+                "validation_state",
+            )
             profile = VariantProfile(
-                profile_id=str(item["profile_id"]),
-                family_id=str(item["family_id"]),
-                variant=str(item.get("variant") or item["profile_id"]),
-                vendor_patterns=tuple(str(x) for x in item.get("vendor_patterns", [])),
-                model_patterns=tuple(str(x) for x in item.get("model_patterns", [])),
-                firmware_patterns=tuple(str(x) for x in item.get("firmware_patterns", [])),
+                profile_id=profile_id,
+                family_id=family_id,
+                variant=variant,
+                vendor_patterns=_profile_string_list(
+                    item.get("vendor_patterns", []), "vendor_patterns"
+                ),
+                model_patterns=_profile_string_list(
+                    item.get("model_patterns", []), "model_patterns"
+                ),
+                firmware_patterns=_profile_string_list(
+                    item.get("firmware_patterns", []), "firmware_patterns"
+                ),
                 parameters=dict(parameters),
-                notes=tuple(str(x) for x in item.get("notes", [])),
-                validation_state=str(item.get("validation_state", "experimental")),
+                notes=_profile_string_list(item.get("notes", []), "notes"),
+                validation_state=validation_state,
             )
             self.register(profile)
             loaded.append(profile)
