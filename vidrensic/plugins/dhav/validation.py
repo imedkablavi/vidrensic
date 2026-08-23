@@ -93,7 +93,10 @@ def assess_single_circular_wrap(records: Iterable[DHAVFrameRecord]) -> DHAVChron
     pivot = decreases[0]
     reordered = items[pivot:] + items[:pivot]
     timestamps: list[datetime] = [record.header.timestamp for record in reordered if record.header.timestamp]
-    monotonic = all(current >= previous for previous, current in zip(timestamps, timestamps[1:]))
+    monotonic = all(
+        current >= previous
+        for previous, current in zip(timestamps, timestamps[1:], strict=False)
+    )
     reasons = [
         f"one physical-order timestamp decrease nominates offset 0x{items[pivot].offset:X} as a candidate wrap pivot",
     ]
