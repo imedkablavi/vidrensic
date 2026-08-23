@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 import json
 import shutil
 import subprocess
+import tempfile
 
 from vidrensic.acquisition.linux import require_safe_source
+
+
+MAX_SMARTCTL_STDOUT_BYTES = 4 * 1024 * 1024
+MAX_SMARTCTL_STDERR_BYTES = 256 * 1024
 
 
 @dataclass(frozen=True)
@@ -130,70 +135,118 @@ def _parse_snapshot(
     )
 
 
+def _uncaptured_snapshot(
+    source: Path,
+    error: str,
+    *,
+    returncode: int | None = None,
+) -> SmartSnapshot:
+    return SmartSnapshot(
+        source=source,
+        captured=False,
+        smartctl_returncode=returncode,
+        model=None,
+        serial=None,
+        firmware=None,
+        capacity_bytes=None,
+        logical_sector_size=None,
+        physical_sector_size=None,
+        rotation_rate=None,
+        smart_passed=None,
+        temperature_celsius=None,
+        power_on_hours=None,
+        reallocated_sectors=None,
+        pending_sectors=None,
+        offline_uncorrectable=None,
+        reported_uncorrectable=None,
+        raw={},
+        error=error,
+    )
+
+
+def _read_bounded_output(handle: BinaryIO, *, limit: int, label: str) -> bytes:
+    handle.flush()
+    handle.seek(0)
+    data = handle.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError(f"smartctl {label} exceeded safety limit of {limit} bytes")
+    return data
+
+
 def capture_smart(source: Path, *, timeout: float = 30.0) -> SmartSnapshot:
-    """Capture SMART/device identity using smartctl JSON without modifying the source."""
+    """Capture SMART/device identity using bounded smartctl JSON output.
+
+    smartctl stdout/stderr are directed to temporary files instead of
+    ``subprocess.PIPE`` so a broken tool/device cannot make Python buffer an
+    unbounded diagnostic stream in memory. The files are then read back through
+    explicit limits before JSON decoding.
+    """
+
+    if timeout <= 0:
+        raise ValueError("timeout must be positive")
 
     info = require_safe_source(source)
     executable = shutil.which("smartctl")
     if executable is None:
-        return SmartSnapshot(
-            source=info.path,
-            captured=False,
-            smartctl_returncode=None,
-            model=None,
-            serial=None,
-            firmware=None,
-            capacity_bytes=None,
-            logical_sector_size=None,
-            physical_sector_size=None,
-            rotation_rate=None,
-            smart_passed=None,
-            temperature_celsius=None,
-            power_on_hours=None,
-            reallocated_sectors=None,
-            pending_sectors=None,
-            offline_uncorrectable=None,
-            reported_uncorrectable=None,
-            raw={},
-            error="smartctl is not installed",
-        )
+        return _uncaptured_snapshot(info.path, "smartctl is not installed")
 
     try:
-        proc = subprocess.run(
-            [executable, "-j", "-a", str(info.path)],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        return SmartSnapshot(
-            source=info.path,
-            captured=False,
-            smartctl_returncode=None,
-            model=None,
-            serial=None,
-            firmware=None,
-            capacity_bytes=None,
-            logical_sector_size=None,
-            physical_sector_size=None,
-            rotation_rate=None,
-            smart_passed=None,
-            temperature_celsius=None,
-            power_on_hours=None,
-            reallocated_sectors=None,
-            pending_sectors=None,
-            offline_uncorrectable=None,
-            reported_uncorrectable=None,
-            raw={},
-            error=f"smartctl timed out after {exc.timeout} seconds",
-        )
+        with tempfile.TemporaryFile(mode="w+b") as stdout_file:
+            with tempfile.TemporaryFile(mode="w+b") as stderr_file:
+                try:
+                    proc = subprocess.run(
+                        [executable, "-j", "-a", str(info.path)],
+                        stdout=stdout_file,
+                        stderr=stderr_file,
+                        timeout=timeout,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    return _uncaptured_snapshot(
+                        info.path,
+                        f"smartctl timed out after {exc.timeout} seconds",
+                    )
+
+                try:
+                    stdout = _read_bounded_output(
+                        stdout_file,
+                        limit=MAX_SMARTCTL_STDOUT_BYTES,
+                        label="stdout",
+                    )
+                    stderr_raw = _read_bounded_output(
+                        stderr_file,
+                        limit=MAX_SMARTCTL_STDERR_BYTES,
+                        label="stderr",
+                    )
+                except ValueError as exc:
+                    return _uncaptured_snapshot(
+                        info.path,
+                        str(exc),
+                        returncode=proc.returncode,
+                    )
+    except OSError as exc:
+        return _uncaptured_snapshot(info.path, f"smartctl execution I/O failed: {exc}")
 
     try:
-        data = json.loads(proc.stdout) if proc.stdout.strip() else {}
+        stdout_text = stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        return _uncaptured_snapshot(
+            info.path,
+            "smartctl stdout is not valid UTF-8 JSON",
+            returncode=proc.returncode,
+        )
+    stderr = stderr_raw.decode("utf-8", errors="replace").strip() or None
+
+    try:
+        data = json.loads(stdout_text) if stdout_text.strip() else {}
     except json.JSONDecodeError:
         data = {}
-    stderr = proc.stderr.strip() or None
+        if stderr is None:
+            stderr = "smartctl returned invalid JSON"
+    if not isinstance(data, dict):
+        data = {}
+        if stderr is None:
+            stderr = "smartctl JSON root is not an object"
     if not data and stderr is None and proc.returncode != 0:
         stderr = f"smartctl exited with status {proc.returncode}"
     return _parse_snapshot(
