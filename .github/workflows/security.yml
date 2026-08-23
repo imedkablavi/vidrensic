@@ -48,6 +48,9 @@ jobs:
       - name: Check tracked public text
         run: python scripts/public_hygiene.py
 
+      - name: Verify immutable GitHub Action pins
+        run: python scripts/check_workflow_action_pins.py
+
   history-secrets:
     runs-on: ubuntu-latest
     timeout-minutes: 25
