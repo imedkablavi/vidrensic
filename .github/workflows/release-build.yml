@@ -12,12 +12,13 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
 
@@ -54,6 +55,50 @@ jobs:
           vidrensic validate corpus validation_corpus/corpus.json --out wheel-validation-report.json
           python -c "import json; r=json.load(open('wheel-validation-report.json')); assert r['status'] == 'PASS'"
 
+      - name: Record resolved runtime dependencies
+        run: |
+          python - <<'PY'
+          import importlib.metadata as metadata
+          import json
+          import platform
+          from pathlib import Path
+
+          from packaging.requirements import Requirement
+
+          package = metadata.distribution("vidrensic")
+          declared = package.requires or []
+          resolved = []
+          for raw in declared:
+              requirement = Requirement(raw)
+              if requirement.marker is not None and not requirement.marker.evaluate():
+                  continue
+              try:
+                  version = metadata.version(requirement.name)
+              except metadata.PackageNotFoundError:
+                  version = None
+              resolved.append(
+                  {
+                      "name": requirement.name,
+                      "declared": raw,
+                      "installed_version": version,
+                  }
+              )
+
+          payload = {
+              "schema_version": 1,
+              "artifact": "qualification-runtime-dependency-inventory",
+              "package": "vidrensic",
+              "package_version": package.version,
+              "python": platform.python_version(),
+              "resolved_runtime_requirements": sorted(resolved, key=lambda item: item["name"].lower()),
+              "claim_limit": "This records direct runtime requirements resolved in the qualification environment; it is not a complete SBOM or provenance attestation.",
+          }
+          Path("dist/QUALIFICATION-DEPENDENCIES.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
       - name: Collect qualification evidence
         run: |
           cp source-validation-report.json dist/SOURCE-VALIDATION-REPORT.json
@@ -83,6 +128,7 @@ jobs:
                   "real_recorder_corpus_index": "admission metadata only; zero cases does not validate a recorder family",
                   "installed_wheel_corpus": "synthetic expectations only",
                   "solver_profile": "synthetic equivalence/profile; not a performance guarantee",
+                  "runtime_dependency_inventory": "direct resolved requirements only; not a complete SBOM",
               },
           }
           Path("dist/BUILD-MANIFEST.json").write_text(
@@ -94,11 +140,11 @@ jobs:
       - name: Generate SHA-256 checksums
         run: |
           cd dist
-          sha256sum BUILD-MANIFEST.json REAL-CORPUS-INDEX.json SOLVER-PROFILE.json SOURCE-VALIDATION-REPORT.json WHEEL-VALIDATION-REPORT.json *.whl *.tar.gz > SHA256SUMS.txt
+          sha256sum BUILD-MANIFEST.json QUALIFICATION-DEPENDENCIES.json REAL-CORPUS-INDEX.json SOLVER-PROFILE.json SOURCE-VALIDATION-REPORT.json WHEEL-VALIDATION-REPORT.json *.whl *.tar.gz > SHA256SUMS.txt
           sha256sum -c SHA256SUMS.txt
 
       - name: Upload Actions artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: vidrensic-${{ github.ref_name }}
           path: |
