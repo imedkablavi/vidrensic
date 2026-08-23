@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
 import os
 import stat
 
@@ -23,6 +24,9 @@ class SourceFingerprint:
     mtime_ns: int | None
     edge_sample_bytes: int
     edge_sample_sha256: str | None
+    serial: str | None = None
+    wwn: str | None = None
+    model: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -38,23 +42,81 @@ class SourceFingerprint:
             "mtime_ns": self.mtime_ns,
             "edge_sample_bytes": self.edge_sample_bytes,
             "edge_sample_sha256": self.edge_sample_sha256,
+            "serial": self.serial,
+            "wwn": self.wwn,
+            "model": self.model,
+            "identity_strength": self.identity_strength,
         }
 
+    @classmethod
+    def from_dict(cls, value: Any) -> SourceFingerprint:
+        if not isinstance(value, dict):
+            raise ValueError("source fingerprint must be an object")
+        mounted = value.get("mounted_at", [])
+        if not isinstance(mounted, list) or not all(isinstance(item, str) for item in mounted):
+            raise ValueError("source fingerprint mounted_at must be a string list")
+        return cls(
+            path=Path(str(value["path"])).expanduser().resolve(),
+            size_bytes=int(value["size_bytes"]),
+            is_block_device=bool(value["is_block_device"]),
+            read_only=value.get("read_only"),
+            mounted_at=tuple(mounted),
+            inode=int(value["inode"]),
+            filesystem_device=int(value["filesystem_device"]),
+            block_major=None if value.get("block_major") is None else int(value["block_major"]),
+            block_minor=None if value.get("block_minor") is None else int(value["block_minor"]),
+            mtime_ns=None if value.get("mtime_ns") is None else int(value["mtime_ns"]),
+            edge_sample_bytes=int(value.get("edge_sample_bytes", 0)),
+            edge_sample_sha256=value.get("edge_sample_sha256"),
+            serial=value.get("serial"),
+            wwn=value.get("wwn"),
+            model=value.get("model"),
+        )
+
+    @property
+    def identity_strength(self) -> str:
+        if self.is_block_device:
+            if self.wwn:
+                return "hardware-wwn"
+            if self.serial:
+                return "hardware-serial"
+            return "device-node-fallback"
+        if self.edge_sample_sha256:
+            return "file-metadata-plus-edge-hash"
+        return "file-metadata"
+
     def same_evidence_identity(self, other: SourceFingerprint) -> bool:
+        if self.size_bytes != other.size_bytes or self.is_block_device != other.is_block_device:
+            return False
+
+        if self.is_block_device:
+            # Prefer stable hardware identity over volatile /dev numbering. If a
+            # stable identifier existed in either observation, it must exist and
+            # match in both observations; silently falling back would weaken an
+            # already-established binding.
+            if self.wwn is not None or other.wwn is not None:
+                return self.wwn is not None and self.wwn == other.wwn
+            if self.serial is not None or other.serial is not None:
+                return self.serial is not None and self.serial == other.serial
+            return (
+                self.block_major == other.block_major
+                and self.block_minor == other.block_minor
+                and self.inode == other.inode
+                and self.filesystem_device == other.filesystem_device
+            )
+
         common = (
-            self.size_bytes == other.size_bytes
-            and self.is_block_device == other.is_block_device
-            and self.inode == other.inode
+            self.inode == other.inode
             and self.filesystem_device == other.filesystem_device
-            and self.block_major == other.block_major
-            and self.block_minor == other.block_minor
+            and self.mtime_ns == other.mtime_ns
         )
         if not common:
             return False
-        if not self.is_block_device and self.mtime_ns != other.mtime_ns:
-            return False
         if self.edge_sample_sha256 is not None or other.edge_sample_sha256 is not None:
-            return self.edge_sample_sha256 == other.edge_sample_sha256
+            return (
+                self.edge_sample_sha256 is not None
+                and self.edge_sample_sha256 == other.edge_sample_sha256
+            )
         return True
 
 
@@ -107,6 +169,9 @@ def fingerprint_source(
         mtime_ns=None if block else st.st_mtime_ns,
         edge_sample_bytes=edge_sample_bytes,
         edge_sample_sha256=edge_hash,
+        serial=info.serial,
+        wwn=info.wwn,
+        model=info.model,
     )
 
 
