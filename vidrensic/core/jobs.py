@@ -6,11 +6,13 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 import json
+import os
 import sqlite3
 import uuid
 
 
 SCHEMA_VERSION = 1
+PRIVATE_FILE_MODE = 0o600
 
 
 class JobStatus(StrEnum):
@@ -58,6 +60,7 @@ class JobStore:
         self.path = path.expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
+        os.chmod(self.path, PRIVATE_FILE_MODE)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=30.0)
