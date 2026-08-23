@@ -18,10 +18,11 @@ For the release commit:
 10. The installed wheel reruns the public validation corpus successfully.
 11. A CycloneDX 1.6 JSON SBOM is generated from an isolated Python environment containing the built wheel and its resolved runtime dependencies, and CycloneDX validation succeeds.
 12. Release artifacts, qualification JSON, SBOM and build manifest receive SHA-256 checksums and the checksum file verifies before upload.
-13. For a tag publication, the read-only build job completes before the separate publication job receives write permission.
-14. For a tag publication, every qualified payload file is signed with Sigstore keyless signing and its bundle is verified against the repository/ref/commit identity before upload to the GitHub Release.
+13. For a tag publication, the read-only build job completes before the separate publication job receives write/attestation permissions.
+14. For a tag publication, GitHub artifact attestations create SLSA build provenance for the qualified payload and an SBOM attestation for the built wheel.
+15. For a tag publication, every qualified payload file is additionally signed with Sigstore keyless signing and its bundle is verified against the repository/ref/commit identity before upload to the GitHub Release.
 
-`workflow_dispatch` is a qualification/build path only. It does not publish a GitHub Release and does not create a signed-release claim.
+`workflow_dispatch` is a qualification/build path only. It does not publish a GitHub Release and does not create a signed-release or provenance-attestation claim.
 
 ## Evidence shipped with a qualifying release build
 
@@ -37,17 +38,17 @@ The release workflow is expected to retain:
 - `SBOM.cdx.json` in CycloneDX 1.6 JSON format;
 - `SHA256SUMS.txt`.
 
-A tag-published GitHub Release must additionally contain the Sigstore bundle generated beside every qualified payload file. If signing or verification fails, the publication job must fail before `gh release upload`.
+For tag publication, GitHub stores the generated provenance/SBOM attestations in its attestation service and the GitHub Release contains the Sigstore bundle generated beside every qualified payload file. If attestation creation, signing or verification fails, publication must fail before `gh release upload`.
 
 These reports are build evidence. They are not substitutes for a case-specific examiner report.
 
 ## Supply-chain permission boundary
 
-The qualification/build job has read-only repository contents permission. It cannot publish a release.
+The qualification/build job has read-only repository contents permission. It cannot publish a release or create repository attestations.
 
-The publication job runs only for tag refs, depends on the successful build job, downloads the already-qualified workflow artifact, re-verifies its SHA-256 checksum file, and receives only the additional permissions required for publication and keyless signing: Actions artifact read, repository contents write for release upload, and OIDC `id-token: write` for Sigstore.
+The publication job runs only for tag refs, depends on the successful build job, downloads the already-qualified workflow artifact, re-verifies its SHA-256 checksum file, and receives only the additional permissions required for publication and keyless attestation/signing: Actions artifact read, repository contents write, GitHub attestation/artifact-metadata write, and OIDC `id-token: write`.
 
-The signing step creates public transparency-log records and therefore exposes the GitHub Actions signing identity as intended by the Sigstore model.
+GitHub artifact attestations and Sigstore signing use short-lived workflow identity. Public transparency/attestation records therefore expose the GitHub Actions signing identity as intended by those trust models.
 
 ## PASS boundaries
 
@@ -84,11 +85,15 @@ Only that the current deterministic synthetic profile selected the same hypothes
 
 Only that the release workflow produced a syntactically valid CycloneDX inventory for the isolated Python runtime environment used to install the built wheel. It does not enumerate operating-system packages, firmware, external tools such as FFmpeg/ddrescue, or dependencies that are not present in that Python environment unless they are represented separately.
 
+### GitHub provenance-attestation PASS proves
+
+For a tag run where the attestation step actually succeeds, it binds the attested artifact digests to GitHub-generated SLSA build-provenance metadata for that workflow identity. The separate SBOM attestation binds the built wheel to the supplied CycloneDX document. These attestations do not make the build reproducible, independently certified, vulnerability-free, or forensically admissible.
+
+Ordinary pull-request CI cannot exercise the tag-only OIDC attestation path. Until a real tag run succeeds, repository configuration should be described as **prepared for provenance attestation**, not as evidence that a published release already has one.
+
 ### Sigstore verification PASS proves
 
 Only that the published payload matched the signed bytes and that the signing certificate/bundle satisfied the GitHub Actions repository/ref/commit verification policy used by the workflow at publication time. It does not prove the software is vulnerability-free, reproducibly built, independently certified, or legally admissible.
-
-The current signing bundles are artifact signatures with transparency-log evidence. Do not label them a complete SLSA provenance attestation unless a separate provenance predicate/attestation is generated and verified.
 
 ## Manual gates before a public stable release
 
@@ -98,6 +103,7 @@ The following remain manual or require evidence not safely fabricated in CI:
 - independent rerun/lab review where the deployment policy requires it;
 - installer behavior on supported deployment environments beyond the Linux wheel CI path;
 - provenance/version review for external native tools such as FFmpeg, ffprobe, ddrescue and smartctl;
+- one real tag qualification proving the tag-only GitHub attestation + Sigstore publication path end to end;
 - social-preview rendering and public release-page presentation;
 - examination of any restricted fixture without publishing protected evidence;
 - GitHub repository ruleset/branch-protection and account-level security-setting verification.
