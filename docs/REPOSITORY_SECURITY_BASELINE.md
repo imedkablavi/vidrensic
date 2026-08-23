@@ -4,7 +4,7 @@ This document records repository-level controls that protect Vidrensic source, r
 
 ## Observed repository state — 2026-08-24
 
-At the start of this hardening pass, GitHub reported the default `main` branch as **not protected** and with no enforced required status checks. That is a repository-governance gap even when the current CI and Security workflows are green.
+At the start of this hardening pass, GitHub reported the default `main` branch as **not protected** and with no enforced required status checks. That is a repository-governance gap even when the current CI, Security and CodeQL workflows are green.
 
 Repository settings are not controlled by Vidrensic runtime code. The controls below must therefore be enabled in GitHub repository settings/rulesets and verified separately from CI.
 
@@ -13,7 +13,7 @@ Repository settings are not controlled by Vidrensic runtime code. The controls b
 Configure a branch ruleset or branch protection rule for `main` with these minimum properties:
 
 1. Require changes to reach `main` through a pull request.
-2. Require the `CI` and `Security` checks that are applicable to the pull request before merge.
+2. Require the `CI`, `Security` and `CodeQL` checks that are applicable to the pull request before merge.
 3. Require all review conversations to be resolved.
 4. Block force pushes and branch deletion.
 5. Do not allow administrators or automation to bypass the rule routinely; document any emergency bypass.
@@ -40,8 +40,9 @@ These are configuration checks. They must not be represented as enabled until ve
 Vidrensic workflows should follow these rules:
 
 - third-party GitHub Actions are pinned to immutable commit SHAs, with the human-readable release tag retained only as a comment;
+- a repository-local Security gate rejects mutable external Action references;
 - jobs have explicit time limits;
-- ordinary CI and security scans use read-only repository permissions;
+- ordinary CI, CodeQL and security scans use read-only repository permissions except for the narrowly required CodeQL `security-events: write` permission;
 - release publication is the only workflow path that should need repository write permission;
 - downloaded/build-time dependencies are treated as untrusted executable code;
 - checksums, validation reports and dependency inventory are release evidence, not a substitute for signing or provenance attestations.
@@ -68,18 +69,33 @@ Before a stable release, choose and qualify an artifact-signing/provenance desig
 
 A newly created Vidrensic case must protect case-owned directories and metadata from unrelated local users by default. Current hardening sets case directories to owner-only (`0700`) and core metadata/audit/job database files to owner read/write (`0600`) on the supported Linux platform.
 
-This is a local filesystem access baseline, not encryption at rest. Full-disk or case-volume encryption, operating-system account isolation, backup policy and evidence-retention policy remain deployment responsibilities.
+The public-release hygiene gate also rejects tracked files under case/evidence acquisition roots and common recorder/media evidence suffixes unless an exact repository path is explicitly reviewed and allowlisted.
 
-## External tool isolation roadmap
+This is a local filesystem access and repository-publication baseline, not encryption at rest. Full-disk or case-volume encryption, operating-system account isolation, backup policy and evidence-retention policy remain deployment responsibilities.
 
-FFmpeg/ffprobe, GNU ddrescue, smartctl and similar tools process attacker-controlled or damaged data and should be treated as separate attack surfaces. Existing subprocess calls avoid shell interpolation and several paths already have timeouts, but stable-release qualification should additionally cover:
+## External tool isolation
 
-- bounded execution time for every non-interactive external-tool path;
-- output-size limits where stdout/stderr or JSON can be attacker-amplified;
-- documented minimum/maximum supported tool versions;
-- sandbox/container guidance for hostile media analysis;
-- regression fixtures for timeout, crash and malformed-output behavior.
+FFmpeg/ffprobe, GNU ddrescue, smartctl and similar tools process attacker-controlled or damaged data and are separate attack surfaces.
+
+Current media-tool hardening includes:
+
+- no shell interpolation;
+- finite default ffprobe and decode-window timeouts;
+- full-video decode is bounded by a finite default timeout and requires any override to remain a positive finite duration;
+- ffprobe requests only the media fields Vidrensic currently needs instead of dumping all format/stream metadata;
+- ffprobe JSON is rejected if it exceeds the configured safety limit;
+- decoder diagnostics stored in QC output are truncated to a fixed maximum size;
+- FFmpeg decode checks use `-nostdin` and `-xerror` so interactive input is disabled and decode errors terminate the validation path rather than generating an unbounded error stream;
+- regression tests cover malformed JSON, oversized probe output, diagnostic truncation, timeout validation and the FFmpeg fail-fast flags.
+
+These controls reduce hang/log/output-amplification risk but are **not** a process sandbox. Stable-release qualification still needs:
+
+- documented minimum/maximum supported FFmpeg/ffprobe versions;
+- sandbox/container guidance for especially hostile media;
+- operating-system resource caps if a supported deployment model can enforce them without invalidating legitimate large evidence;
+- equivalent review of every remaining external tool path (GNU ddrescue, smartctl and future adapters);
+- crash and timeout fixtures against the real supported tool versions.
 
 ## What this baseline proves
 
-A PASS of repository CI can show that the checked commit met the automated gates configured in that workflow. It cannot prove that GitHub repository settings were enabled, that a release artifact was independently signed, that a recorder family is validated, or that a deployment host is securely configured.
+A PASS of repository CI can show that the checked commit met the automated gates configured in that workflow. It cannot prove that GitHub repository settings were enabled, that a release artifact was independently signed, that a recorder family is validated, that FFmpeg is sandboxed, or that a deployment host is securely configured.
