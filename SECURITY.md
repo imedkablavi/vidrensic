@@ -4,6 +4,8 @@ Vidrensic processes evidence sources, malformed proprietary media, untrusted bin
 structures, and external decoder output. Security defects can therefore affect
 both host safety and evidentiary integrity.
 
+Repository-level controls, release-pipeline hardening and GitHub settings are tracked separately in [`docs/REPOSITORY_SECURITY_BASELINE.md`](docs/REPOSITORY_SECURITY_BASELINE.md). A passing parser or validation corpus does not imply those repository controls are enabled.
+
 ## Reporting a vulnerability
 
 Do not publish a suspected vulnerability, evidence sample, customer case, or
@@ -35,6 +37,9 @@ Include, where possible:
 - Preserve native artifacts before generating derived media.
 - Record destructive or evidence-affecting operations in the case audit log.
 - Prefer explicit allowlists for supported media suffixes and parser record types.
+- Keep case-owned directories and core metadata inaccessible to unrelated local
+  users by default on the supported Linux platform.
+- Pin external GitHub Actions to immutable commit SHAs and enforce that rule in CI.
 
 ## Supported versions
 
