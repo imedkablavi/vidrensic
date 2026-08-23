@@ -43,27 +43,40 @@ Vidrensic workflows should follow these rules:
 - a repository-local Security gate rejects mutable external Action references;
 - jobs have explicit time limits;
 - ordinary CI, CodeQL and security scans use read-only repository permissions except for the narrowly required CodeQL `security-events: write` permission;
-- release publication is the only workflow path that should need repository write permission;
-- downloaded/build-time dependencies are treated as untrusted executable code;
-- checksums, validation reports and dependency inventory are release evidence, not a substitute for signing or provenance attestations.
+- release qualification/build runs with read-only repository contents permission;
+- release publication is a separate tag-only job and is the only workflow path that receives repository contents write permission;
+- downloaded/build-time dependencies are treated as untrusted executable code and release-only tooling is version pinned in the workflow;
+- checksums, validation reports, SBOMs and signatures are evidence with explicit claim limits, not proof of recorder compatibility.
 
-### Known remaining release-token gap
+### Release-token boundary
 
-The current release workflow performs qualification/build and GitHub Release upload in one job with `contents: write`. Although the token is only explicitly passed to `gh` in the final publication step and repository Actions are SHA-pinned, least privilege would be stronger if release qualification/build ran in a read-only job and a second publication job downloaded the already-qualified artifact under write permission.
+The release pipeline separates build/qualification from publication. The build job cannot write repository contents. The tag-only publish job depends on the successful build, downloads the qualified artifact from the same workflow run, re-verifies its SHA-256 checksum file, and receives only Actions artifact read, repository contents write, and OIDC identity-token permission.
 
-Split-job publication should be implemented and tested before calling the release pipeline fully least-privilege.
+A `workflow_dispatch` execution produces qualification artifacts but skips the publication/signing job and therefore must not be described as a signed GitHub Release.
 
-## Artifact integrity roadmap
+## Artifact integrity
 
-Current release qualification produces SHA-256 checksums, a build manifest, validation reports and a direct runtime dependency inventory. These improve traceability but do **not** constitute all of the following:
+Release qualification produces:
 
-- a full SPDX/CycloneDX SBOM;
-- a SLSA provenance attestation;
-- Sigstore/GPG artifact signing;
-- a trusted timestamp;
-- reproducible-build proof.
+- SHA-256 checksums;
+- a build manifest with commit/ref/workflow identity and claim limits;
+- source and installed-wheel validation reports;
+- a deterministic solver profile;
+- the real-recorder admission index;
+- a direct resolved-runtime dependency inventory;
+- a CycloneDX 1.6 JSON SBOM generated from an isolated environment containing the built wheel and resolved Python runtime dependencies.
 
-Before a stable release, choose and qualify an artifact-signing/provenance design. Verification instructions must fail closed when a signature, digest or attestation is missing or invalid.
+For tag publication, the qualified files are signed using Sigstore keyless GitHub Actions identity. Every generated bundle is verified against the repository, ref and commit before GitHub Release upload. Signing or verification failure blocks publication.
+
+These controls improve artifact origin/integrity but do **not** establish all of the following:
+
+- operating-system/native-tool SBOM coverage;
+- a complete SLSA provenance predicate/attestation;
+- reproducible-build proof;
+- independent trusted laboratory certification;
+- evidence admissibility.
+
+Sigstore transparency records intentionally disclose the CI signing identity. The current artifact bundles must not be called complete SLSA provenance unless a separate provenance attestation is generated and verified.
 
 ## Evidence-host privacy baseline
 
@@ -98,4 +111,4 @@ These controls reduce hang/log/output-amplification risk but are **not** a proce
 
 ## What this baseline proves
 
-A PASS of repository CI can show that the checked commit met the automated gates configured in that workflow. It cannot prove that GitHub repository settings were enabled, that a release artifact was independently signed, that a recorder family is validated, that FFmpeg is sandboxed, or that a deployment host is securely configured.
+A PASS of repository CI can show that the checked commit met the automated gates configured in that workflow. It cannot prove that GitHub repository settings were enabled, that every native dependency is represented in the Python SBOM, that a recorder family is validated, that FFmpeg is sandboxed, that a complete SLSA provenance exists, or that a deployment host is securely configured.
