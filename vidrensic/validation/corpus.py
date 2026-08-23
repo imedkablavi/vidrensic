@@ -9,8 +9,17 @@ import json
 
 from vidrensic import __version__
 from vidrensic.core.hashing import hash_file
+from vidrensic.core.json_limits import BoundedJSONError, load_bounded_json
 from vidrensic.plugins.defaults import default_plugin_registry
 from vidrensic.plugins.wfs.recovery import recover_segment
+
+
+MAX_CORPUS_MANIFEST_BYTES = 8 * 1024 * 1024
+MAX_CORPUS_CASES = 4096
+MAX_EXPECTATIONS_PER_CASE = 512
+MAX_NOTES_PER_CASE = 1024
+MAX_WFS_STARTS_PER_EXPECTATION = 4096
+MAX_GENERATED_MANIFEST_BYTES = 16 * 1024 * 1024
 
 
 class CorpusError(ValueError):
@@ -97,8 +106,6 @@ def _contained_file(root: Path, relative: str) -> Path:
         raise CorpusError("corpus source paths must be relative to the manifest directory")
 
     unresolved = root / candidate
-    # Check the directory entry before resolve(); Path.resolve() dereferences a
-    # symlink and would otherwise make the later safety check ineffective.
     if unresolved.is_symlink():
         raise CorpusError(f"corpus source may not be a symlink: {relative}")
     resolved = unresolved.resolve()
@@ -126,7 +133,17 @@ def _expectation_from_json(value: Any) -> CorpusExpectation:
 
 def load_corpus(manifest: Path) -> ValidationCorpus:
     manifest = manifest.expanduser().resolve()
-    data = json.loads(manifest.read_text(encoding="utf-8"))
+    try:
+        data = load_bounded_json(
+            manifest,
+            max_bytes=MAX_CORPUS_MANIFEST_BYTES,
+            max_depth=48,
+            max_nodes=250_000,
+            max_string_chars=256 * 1024,
+            label="validation corpus manifest",
+        )
+    except BoundedJSONError as exc:
+        raise CorpusError(str(exc)) from exc
     if not isinstance(data, dict) or data.get("schema_version") != 1:
         raise CorpusError("validation corpus schema_version must be 1")
     corpus_id = data.get("corpus_id")
@@ -138,6 +155,8 @@ def load_corpus(manifest: Path) -> ValidationCorpus:
     raw_cases = data.get("cases")
     if not isinstance(raw_cases, list) or not raw_cases:
         raise CorpusError("corpus must contain at least one case")
+    if len(raw_cases) > MAX_CORPUS_CASES:
+        raise CorpusError(f"corpus exceeds {MAX_CORPUS_CASES} cases")
 
     root = manifest.parent.resolve()
     cases: list[CorpusCase] = []
@@ -176,10 +195,16 @@ def load_corpus(manifest: Path) -> ValidationCorpus:
         raw_expectations = row.get("expectations", [])
         if not isinstance(raw_expectations, list) or not raw_expectations:
             raise CorpusError(f"case {case_id}: at least one expectation is required")
+        if len(raw_expectations) > MAX_EXPECTATIONS_PER_CASE:
+            raise CorpusError(
+                f"case {case_id}: expectations exceed {MAX_EXPECTATIONS_PER_CASE} entries"
+            )
         expectations = tuple(_expectation_from_json(item) for item in raw_expectations)
         notes_value = row.get("notes", [])
         if not isinstance(notes_value, list) or not all(isinstance(item, str) for item in notes_value):
             raise CorpusError(f"case {case_id}: notes must be a list of strings")
+        if len(notes_value) > MAX_NOTES_PER_CASE:
+            raise CorpusError(f"case {case_id}: notes exceed {MAX_NOTES_PER_CASE} entries")
         cases.append(
             CorpusCase(
                 case_id=case_id,
@@ -235,6 +260,10 @@ def _run_wfs_recover(source: Path, expectation: CorpusExpectation) -> dict[str, 
     stop_fragment = params.get("stop_fragment")
     if not isinstance(starts, list) or not starts or not all(isinstance(item, int) for item in starts):
         raise CorpusError("wfs_recover parameters.starts must be a non-empty integer list")
+    if len(starts) > MAX_WFS_STARTS_PER_EXPECTATION:
+        raise CorpusError(
+            f"wfs_recover parameters.starts exceeds {MAX_WFS_STARTS_PER_EXPECTATION} entries"
+        )
     if not isinstance(stop_fragment, int):
         raise CorpusError("wfs_recover parameters.stop_fragment must be an integer")
     strategy = str(params.get("strategy", "global"))
@@ -255,7 +284,17 @@ def _run_wfs_recover(source: Path, expectation: CorpusExpectation) -> dict[str, 
             max_hypotheses=int(params.get("max_hypotheses", 64)),
             max_combinations=int(params.get("max_combinations", 250_000)),
         )
-        manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
+        try:
+            manifest_data = load_bounded_json(
+                manifest,
+                max_bytes=MAX_GENERATED_MANIFEST_BYTES,
+                max_depth=64,
+                max_nodes=500_000,
+                max_string_chars=256 * 1024,
+                label="generated WFS validation manifest",
+            )
+        except BoundedJSONError as exc:
+            raise CorpusError(str(exc)) from exc
         return {
             "strategy": strategy,
             "candidate_count": len(candidates),
