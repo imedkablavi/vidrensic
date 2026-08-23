@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 
+MAX_REAL_CORPUS_CASES = 4096
+MAX_REAL_EXPECTATIONS_PER_CASE = 1024
+MAX_REAL_TEXT_CHARS = 64 * 1024
+
+
 class RealCorpusIndexError(ValueError):
     pass
 
@@ -10,6 +15,8 @@ class RealCorpusIndexError(ValueError):
 def _nonempty_string(value: Any, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise RealCorpusIndexError(f"{field} must be a non-empty string")
+    if len(value) > MAX_REAL_TEXT_CHARS:
+        raise RealCorpusIndexError(f"{field} exceeds {MAX_REAL_TEXT_CHARS} characters")
     return value.strip()
 
 
@@ -39,6 +46,8 @@ def validate_real_corpus_index(data: Any) -> None:
     cases = data.get("cases")
     if not isinstance(cases, list):
         raise RealCorpusIndexError("cases must be a list")
+    if len(cases) > MAX_REAL_CORPUS_CASES:
+        raise RealCorpusIndexError(f"cases exceeds {MAX_REAL_CORPUS_CASES} entries")
 
     seen: set[str] = set()
     for number, case in enumerate(cases):
@@ -89,6 +98,11 @@ def validate_real_corpus_index(data: Any) -> None:
         if not isinstance(expectations, list) or not expectations:
             raise RealCorpusIndexError(
                 f"{prefix}.ground_truth.expectations must be a non-empty list"
+            )
+        if len(expectations) > MAX_REAL_EXPECTATIONS_PER_CASE:
+            raise RealCorpusIndexError(
+                f"{prefix}.ground_truth.expectations exceeds "
+                f"{MAX_REAL_EXPECTATIONS_PER_CASE} entries"
             )
         for expectation_index, expectation in enumerate(expectations):
             if not isinstance(expectation, dict):
