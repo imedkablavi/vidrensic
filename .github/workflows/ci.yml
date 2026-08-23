@@ -50,11 +50,21 @@ jobs:
         if: matrix.python-version == '3.12'
         run: python scripts/check_critical_coverage.py coverage.xml --overall 80
 
+      - name: Validate real-recorder corpus admission index
+        if: matrix.python-version == '3.12'
+        run: python scripts/validate_real_corpus_index.py
+
       - name: Public validation corpus smoke test
         if: matrix.python-version == '3.12'
         run: |
           vidrensic validate corpus validation_corpus/corpus.json --out validation-report.json
           python -c "import json; r=json.load(open('validation-report.json')); assert r['status'] == 'PASS'"
+
+      - name: Profile WFS production vs reference branch-and-bound selector
+        if: matrix.python-version == '3.12'
+        run: |
+          python scripts/profile_wfs_solver.py --starts 5 --options 7 --out solver-profile.json
+          python -c "import json; r=json.load(open('solver-profile.json')); assert r['selection_equivalent'] is True"
 
       - name: CLI smoke test
         run: |
@@ -69,6 +79,12 @@ jobs:
       - name: Build source and wheel distributions
         if: matrix.python-version == '3.12'
         run: python -m build
+
+      - name: Validate distribution metadata
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m pip install twine
+          python -m twine check dist/*.whl dist/*.tar.gz
 
       - name: Smoke test built wheel
         if: matrix.python-version == '3.12'
@@ -89,5 +105,6 @@ jobs:
             coverage.xml
             validation-report.json
             wheel-validation-report.json
+            solver-profile.json
           if-no-files-found: error
           retention-days: 14

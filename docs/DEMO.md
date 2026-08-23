@@ -1,6 +1,6 @@
-# Reproducible Demo
+# Reproducible Public Demo
 
-This demo is intentionally synthetic. It contains **no real CCTV footage and no case evidence**. Its purpose is to let a new contributor verify Vidrensic's format detection and DHAV channel reconstruction path in under a minute.
+This demo is intentionally synthetic. It contains **no real CCTV footage and no case evidence**. Its purpose is to let a new user verify a small, deterministic Vidrensic detection/recovery path without implying recorder-family validation.
 
 ## 1. Install the development build
 
@@ -13,13 +13,19 @@ python -m pip install -U pip
 python -m pip install -e '.[dev]'
 ```
 
+Record the version before comparing output:
+
+```bash
+vidrensic --version
+```
+
 ## 2. Run the complete demo
 
 ```bash
 bash examples/run_demo.sh
 ```
 
-The script creates a deterministic synthetic DHAV-like source, prints its SHA-256 hash, asks Vidrensic to rank the format families, then performs validated frame carving/channel demultiplexing.
+The script creates a deterministic synthetic DHAV-like source, prints its SHA-256 hash, asks Vidrensic to rank format evidence, then performs structurally validated frame carving/channel demultiplexing.
 
 Expected shape of the output:
 
@@ -42,9 +48,21 @@ channel_01.native.dhav
 channel_01.video.es
 ```
 
-Exact confidence text may evolve as detectors improve; the regression test asserts the important invariant: **DHAV must rank first and all 12 structurally valid frames must remain recoverable into two physical channels.**
+Exact confidence text may evolve as detectors improve. The regression test asserts the narrower invariant: **the documented synthetic source ranks DHAV first and all 12 structurally valid synthetic frames remain recoverable into two physical channels.**
 
-## 3. Run the steps manually
+## 3. Run the public validation corpus
+
+The demo and the validation corpus are separate checks. Run both when evaluating a checkout:
+
+```bash
+vidrensic validate corpus validation_corpus/corpus.json \
+  --out validation-report.json
+python -m json.tool validation-report.json | less
+```
+
+A report-level `PASS` here applies only to the declared expectations for the exact public synthetic corpus. The real-recorder admission index is separate under `validation_corpus/real/` and may truthfully contain zero fixtures.
+
+## 4. Run the demo steps manually
 
 Generate only the sample:
 
@@ -65,7 +83,7 @@ vidrensic recover dhav .vidrensic-demo/synthetic-dhav.raw \
   --out .vidrensic-demo/recovered
 ```
 
-Inspect the manifest:
+Inspect the manifest rather than relying on filenames alone:
 
 ```bash
 python -m json.tool .vidrensic-demo/recovered/dhav_manifest.json | less
@@ -73,10 +91,14 @@ python -m json.tool .vidrensic-demo/recovered/dhav_manifest.json | less
 
 ## What this demo proves — and what it does not
 
-It proves that the installed build can recognize the documented synthetic DHAV structure, validate frame boundaries/footer lengths, preserve physical ordering, split frames by channel, extract elementary video payload bytes, and emit a manifest.
+It proves that the tested build can recognize the documented synthetic DHAV structure, validate its synthetic frame boundaries/footer lengths, preserve physical ordering, split frames by channel, extract elementary video payload bytes and emit a manifest.
 
-It does **not** prove support for every Dahua/OEM firmware, circular-wrap chronology, deleted-recording recovery, audio variants, vendor encryption, or a specific real recorder. Those capabilities remain governed by the live support matrix and validated fixture corpus.
+It does **not** prove support for every Dahua/OEM firmware, circular-wrap chronology, deleted-recording recovery, audio payload correctness, vendor encryption, a specific real recorder, evidentiary admissibility or independent forensic certification.
+
+The demo itself never upgrades a family to validated real-recorder support. That requires admitted, legally usable real fixtures with hashes, provenance and independent ground truth.
 
 ## Why the demo is kept in CI
 
-`tests/test_demo_example.py` executes the generator and validates the resulting source against the actual detector/scanner. That prevents the public quick-start demo from silently becoming stale while the parser evolves.
+`tests/test_demo_example.py` executes the generator and validates the resulting source against the actual detector/scanner. This prevents the public quick-start path from silently becoming stale while parsers evolve.
+
+For release claim boundaries, see `docs/RELEASE_QUALIFICATION.md` and the standalone validation report for the audited release/commit.

@@ -21,16 +21,45 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install build tooling
+      - name: Install qualification and build tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install build twine
+          python -m pip install -e '.[dev]' twine
+          python -m pip check
+
+      - name: Source release qualification
+        run: |
+          ruff check vidrensic tests scripts
+          python -m compileall -q vidrensic tests scripts
+          pytest
+          python scripts/validate_real_corpus_index.py
+          vidrensic validate corpus validation_corpus/corpus.json --out source-validation-report.json
+          python -c "import json; r=json.load(open('source-validation-report.json')); assert r['status'] == 'PASS'"
+          python scripts/profile_wfs_solver.py --starts 5 --options 7 --out solver-profile.json
+          python -c "import json; r=json.load(open('solver-profile.json')); assert r['selection_equivalent'] is True"
 
       - name: Build source and wheel distributions
         run: python -m build
 
       - name: Validate package metadata
         run: python -m twine check dist/*.whl dist/*.tar.gz
+
+      - name: Verify built wheel and rerun corpus
+        run: |
+          python -m pip uninstall -y vidrensic
+          python -m pip install --force-reinstall dist/*.whl
+          python -m pip check
+          vidrensic --version
+          vidrensic formats list
+          vidrensic validate corpus validation_corpus/corpus.json --out wheel-validation-report.json
+          python -c "import json; r=json.load(open('wheel-validation-report.json')); assert r['status'] == 'PASS'"
+
+      - name: Collect qualification evidence
+        run: |
+          cp source-validation-report.json dist/SOURCE-VALIDATION-REPORT.json
+          cp wheel-validation-report.json dist/WHEEL-VALIDATION-REPORT.json
+          cp solver-profile.json dist/SOLVER-PROFILE.json
+          cp validation_corpus/real/real-corpus-index.json dist/REAL-CORPUS-INDEX.json
 
       - name: Write build manifest
         run: |
@@ -41,12 +70,20 @@ jobs:
           from pathlib import Path
 
           manifest = {
+              "schema_version": 2,
               "product": "Vidrensic",
               "ref": os.environ.get("GITHUB_REF_NAME"),
               "commit": os.environ.get("GITHUB_SHA"),
               "workflow_run": os.environ.get("GITHUB_RUN_ID"),
               "python": platform.python_version(),
               "platform": platform.platform(),
+              "qualification": {
+                  "source_tests": "passed in this workflow before build",
+                  "public_corpus": "synthetic expectations only",
+                  "real_recorder_corpus_index": "admission metadata only; zero cases does not validate a recorder family",
+                  "installed_wheel_corpus": "synthetic expectations only",
+                  "solver_profile": "synthetic equivalence/profile; not a performance guarantee",
+              },
           }
           Path("dist/BUILD-MANIFEST.json").write_text(
               json.dumps(manifest, indent=2, sort_keys=True) + "\n",
@@ -57,14 +94,8 @@ jobs:
       - name: Generate SHA-256 checksums
         run: |
           cd dist
-          sha256sum BUILD-MANIFEST.json *.whl *.tar.gz > SHA256SUMS.txt
-          cat SHA256SUMS.txt
-
-      - name: Verify built wheel installs
-        run: |
-          python -m pip install --force-reinstall dist/*.whl
-          vidrensic --version
-          vidrensic formats list
+          sha256sum BUILD-MANIFEST.json REAL-CORPUS-INDEX.json SOLVER-PROFILE.json SOURCE-VALIDATION-REPORT.json WHEEL-VALIDATION-REPORT.json *.whl *.tar.gz > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
 
       - name: Upload Actions artifact
         uses: actions/upload-artifact@v7
