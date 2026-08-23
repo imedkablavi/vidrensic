@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from vidrensic.core.models import EvidenceStatus
 from vidrensic.media import qc
 from vidrensic.media.probe import VideoProbe
@@ -89,3 +91,49 @@ def test_full_decode_without_expected_duration_is_review(tmp_path: Path, monkeyp
     report = qc.full_decode_check(path)
     assert report.decision.status is EvidenceStatus.REVIEW
     assert "expected duration not supplied" in report.decision.reasons
+
+
+def test_full_decode_defaults_to_finite_timeout_and_xerror(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "candidate.mp4"
+    path.write_bytes(b"synthetic")
+    monkeypatch.setattr(qc, "probe_video", lambda _path: _probe(path))
+    observed: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        observed["command"] = command
+        observed["timeout"] = kwargs["timeout"]
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr(qc.subprocess, "run", fake_run)
+    report = qc.full_decode_check(path, expected_duration=3600.0)
+    assert report.decision.status is EvidenceStatus.PASS
+    assert observed["timeout"] == qc.DEFAULT_FULL_DECODE_TIMEOUT
+    assert "-xerror" in observed["command"]
+    assert "-nostdin" in observed["command"]
+    assert report.decision.measurements["full_decode_timeout_seconds"] == qc.DEFAULT_FULL_DECODE_TIMEOUT
+
+
+def test_full_decode_rejects_unbounded_or_nonpositive_timeout(tmp_path: Path) -> None:
+    path = tmp_path / "candidate.mp4"
+    path.write_bytes(b"synthetic")
+    with pytest.raises(ValueError, match="timeout"):
+        qc.full_decode_check(path, timeout=0)
+    with pytest.raises(ValueError, match="timeout"):
+        qc.full_decode_check(path, timeout=-1)
+
+
+def test_full_decode_diagnostics_are_truncated(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "candidate.mp4"
+    path.write_bytes(b"synthetic")
+    monkeypatch.setattr(qc, "probe_video", lambda _path: _probe(path))
+    huge = "E" * (qc.MAX_FULL_DECODE_DIAGNOSTIC_CHARS + 1000)
+    monkeypatch.setattr(
+        qc.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=1, stderr=huge),
+    )
+    report = qc.full_decode_check(path, expected_duration=3600.0)
+    assert report.decision.status is EvidenceStatus.FAIL
+    assert report.full_decode_error is not None
+    assert report.full_decode_error.endswith("[diagnostic output truncated]")
+    assert len(report.full_decode_error) < len(huge)

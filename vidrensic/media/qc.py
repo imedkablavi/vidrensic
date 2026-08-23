@@ -10,6 +10,10 @@ from vidrensic.core.models import EvidenceStatus, QCDecision
 from vidrensic.media.probe import VideoProbe, decode_window, probe_video
 
 
+DEFAULT_FULL_DECODE_TIMEOUT = 3600.0
+MAX_FULL_DECODE_DIAGNOSTIC_CHARS = 64 * 1024
+
+
 @dataclass(frozen=True)
 class DecodeCheckpoint:
     name: str
@@ -90,6 +94,15 @@ def _duration_measurements(
     return measurements, reasons, hard_fail
 
 
+def _bounded_decode_error(value: str) -> str:
+    if len(value) <= MAX_FULL_DECODE_DIAGNOSTIC_CHARS:
+        return value.strip()
+    return (
+        value[:MAX_FULL_DECODE_DIAGNOSTIC_CHARS].rstrip()
+        + "\n[diagnostic output truncated]"
+    )
+
+
 def fast_three_point_check(
     path: Path,
     *,
@@ -104,6 +117,8 @@ def fast_three_point_check(
 
     if window_seconds <= 0:
         raise ValueError("window_seconds must be positive")
+    if timeout_per_window <= 0:
+        raise ValueError("timeout_per_window must be positive")
     probe = probe_video(path)
     if probe.codec is None:
         return MediaQCReport(
@@ -174,8 +189,13 @@ def full_decode_check(
 
     PASS is possible only when the full decode succeeds, an expected duration is
     supplied and acceptable, and reconstruction is neither ambiguous nor unresolved.
+    The external decoder is always bounded by a positive timeout; callers that
+    need longer processing must opt into a larger finite value explicitly.
     """
 
+    effective_timeout = DEFAULT_FULL_DECODE_TIMEOUT if timeout is None else timeout
+    if effective_timeout <= 0:
+        raise ValueError("full decode timeout must be positive")
     path = path.expanduser().resolve()
     probe = probe_video(path)
     reasons: list[str] = []
@@ -184,6 +204,7 @@ def full_decode_check(
         expected_duration,
     )
     reasons.extend(duration_reasons)
+    measurements["full_decode_timeout_seconds"] = effective_timeout
 
     if probe.codec is None:
         reasons.append("no video stream detected")
@@ -199,8 +220,10 @@ def full_decode_check(
             [
                 "ffmpeg",
                 "-nostdin",
+                "-hide_banner",
                 "-v",
                 "error",
+                "-xerror",
                 "-i",
                 str(path),
                 "-map",
@@ -212,10 +235,10 @@ def full_decode_check(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
+            timeout=effective_timeout,
             check=False,
         )
-        decode_error = proc.stderr.strip()
+        decode_error = _bounded_decode_error(proc.stderr)
         decode_failed = proc.returncode != 0 or bool(decode_error)
     except subprocess.TimeoutExpired as exc:
         decode_error = f"full decode timed out after {exc.timeout} seconds"
