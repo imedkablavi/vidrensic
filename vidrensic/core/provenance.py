@@ -10,6 +10,28 @@ import stat
 from vidrensic.acquisition.linux import inspect_source
 
 
+def _required_int(value: Any, field: str, *, minimum: int = 0) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"source fingerprint {field} must be an integer")
+    if value < minimum:
+        raise ValueError(f"source fingerprint {field} must be >= {minimum}")
+    return value
+
+
+def _optional_int(value: Any, field: str, *, minimum: int = 0) -> int | None:
+    if value is None:
+        return None
+    return _required_int(value, field, minimum=minimum)
+
+
+def _optional_string(value: Any, field: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"source fingerprint {field} must be a non-empty string or null")
+    return value.strip()
+
+
 @dataclass(frozen=True)
 class SourceFingerprint:
     path: Path
@@ -52,25 +74,63 @@ class SourceFingerprint:
     def from_dict(cls, value: Any) -> SourceFingerprint:
         if not isinstance(value, dict):
             raise ValueError("source fingerprint must be an object")
+        path_value = value.get("path")
+        if not isinstance(path_value, str) or not path_value.strip():
+            raise ValueError("source fingerprint path must be a non-empty string")
         mounted = value.get("mounted_at", [])
         if not isinstance(mounted, list) or not all(isinstance(item, str) for item in mounted):
             raise ValueError("source fingerprint mounted_at must be a string list")
+        is_block = value.get("is_block_device")
+        if not isinstance(is_block, bool):
+            raise ValueError("source fingerprint is_block_device must be boolean")
+        read_only = value.get("read_only")
+        if read_only is not None and not isinstance(read_only, bool):
+            raise ValueError("source fingerprint read_only must be boolean or null")
+
+        size_bytes = _required_int(value.get("size_bytes"), "size_bytes", minimum=1)
+        inode = _required_int(value.get("inode"), "inode")
+        filesystem_device = _required_int(value.get("filesystem_device"), "filesystem_device")
+        block_major = _optional_int(value.get("block_major"), "block_major")
+        block_minor = _optional_int(value.get("block_minor"), "block_minor")
+        mtime_ns = _optional_int(value.get("mtime_ns"), "mtime_ns")
+        edge_sample_bytes = _required_int(
+            value.get("edge_sample_bytes", 0),
+            "edge_sample_bytes",
+        )
+        if edge_sample_bytes > 16 * 1024 * 1024:
+            raise ValueError("source fingerprint edge_sample_bytes exceeds 16 MiB")
+        edge_hash = value.get("edge_sample_sha256")
+        if edge_hash is not None:
+            if not isinstance(edge_hash, str) or len(edge_hash) != 64:
+                raise ValueError("source fingerprint edge_sample_sha256 must be 64 hex characters")
+            edge_hash = edge_hash.lower()
+            if any(character not in "0123456789abcdef" for character in edge_hash):
+                raise ValueError("source fingerprint edge_sample_sha256 must be hexadecimal")
+        if edge_sample_bytes > 0 and edge_hash is None:
+            raise ValueError("source fingerprint edge sample bytes require an edge SHA-256")
+        if edge_sample_bytes == 0 and edge_hash is not None:
+            raise ValueError("source fingerprint edge SHA-256 requires non-zero sample bytes")
+        if is_block and (block_major is None or block_minor is None):
+            raise ValueError("block source fingerprint requires major/minor identifiers")
+        if is_block and mtime_ns is not None:
+            raise ValueError("block source fingerprint must not persist mtime_ns")
+
         return cls(
-            path=Path(str(value["path"])).expanduser().resolve(),
-            size_bytes=int(value["size_bytes"]),
-            is_block_device=bool(value["is_block_device"]),
-            read_only=value.get("read_only"),
+            path=Path(path_value).expanduser().resolve(),
+            size_bytes=size_bytes,
+            is_block_device=is_block,
+            read_only=read_only,
             mounted_at=tuple(mounted),
-            inode=int(value["inode"]),
-            filesystem_device=int(value["filesystem_device"]),
-            block_major=None if value.get("block_major") is None else int(value["block_major"]),
-            block_minor=None if value.get("block_minor") is None else int(value["block_minor"]),
-            mtime_ns=None if value.get("mtime_ns") is None else int(value["mtime_ns"]),
-            edge_sample_bytes=int(value.get("edge_sample_bytes", 0)),
-            edge_sample_sha256=value.get("edge_sample_sha256"),
-            serial=value.get("serial"),
-            wwn=value.get("wwn"),
-            model=value.get("model"),
+            inode=inode,
+            filesystem_device=filesystem_device,
+            block_major=block_major,
+            block_minor=block_minor,
+            mtime_ns=mtime_ns,
+            edge_sample_bytes=edge_sample_bytes,
+            edge_sample_sha256=edge_hash,
+            serial=_optional_string(value.get("serial"), "serial"),
+            wwn=_optional_string(value.get("wwn"), "wwn"),
+            model=_optional_string(value.get("model"), "model"),
         )
 
     @property
