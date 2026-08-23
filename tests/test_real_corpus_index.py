@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from scripts.validate_real_corpus_index import RealCorpusIndexError, validate_index
+from vidrensic.validation.real_corpus import RealCorpusIndexError, validate_real_corpus_index
 
 
 def _case() -> dict:
@@ -48,36 +48,36 @@ def _index(cases: list[dict]) -> dict:
 
 
 def test_zero_case_index_is_truthful_and_valid() -> None:
-    validate_index(_index([]))
+    validate_real_corpus_index(_index([]))
 
 
 def test_valid_real_case_requires_complete_legal_and_ground_truth_metadata() -> None:
-    validate_index(_index([_case()]))
+    validate_real_corpus_index(_index([_case()]))
 
 
 def test_synthetic_case_cannot_be_admitted_as_real_validation() -> None:
     case = _case()
     case["provenance"] = "synthetic"
     with pytest.raises(RealCorpusIndexError, match="synthetic is not real validation"):
-        validate_index(_index([case]))
+        validate_real_corpus_index(_index([case]))
 
 
 def test_real_case_requires_source_hash() -> None:
     case = _case()
     del case["source_sha256"]
     with pytest.raises(RealCorpusIndexError, match="source_sha256"):
-        validate_index(_index([case]))
+        validate_real_corpus_index(_index([case]))
 
 
 def test_real_case_requires_legal_basis() -> None:
     case = _case()
     del case["legal_basis"]
     with pytest.raises(RealCorpusIndexError, match="legal_basis"):
-        validate_index(_index([case]))
+        validate_real_corpus_index(_index([case]))
 
 
 def test_real_case_requires_ground_truth_expectations() -> None:
     case = _case()
     case["ground_truth"]["expectations"] = []
     with pytest.raises(RealCorpusIndexError, match="expectations"):
-        validate_index(_index([case]))
+        validate_real_corpus_index(_index([case]))
