@@ -54,7 +54,7 @@ def _start_codes(data: bytes, *, limit: int | None = None) -> tuple[tuple[int, i
                 break
             position += 4
             continue
-        if data[position : position + 3] == b"\x00\x01"[:0] + b"\x00\x00\x01":
+        if data[position : position + 3] == b"\x00\x00\x01":
             found.append((position, 3))
             if limit is not None and len(found) >= limit:
                 break
