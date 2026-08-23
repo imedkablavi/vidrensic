@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 import json
+import os
 import re
 import uuid
 
@@ -13,6 +14,8 @@ from vidrensic.core.jobs import JobStore
 
 CASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 CASE_SCHEMA_VERSION = 1
+PRIVATE_DIR_MODE = 0o700
+PRIVATE_FILE_MODE = 0o600
 
 
 @dataclass(frozen=True)
@@ -50,11 +53,15 @@ class Case:
             )
         root = root.expanduser().resolve()
         case_root = root / case_id
-        case_root.mkdir(parents=True, exist_ok=False)
+        case_root.mkdir(mode=PRIVATE_DIR_MODE, parents=True, exist_ok=False)
+        os.chmod(case_root, PRIVATE_DIR_MODE)
 
+        # Create every case-owned directory explicitly so an intermediate path
+        # (notably ``derived``) cannot inherit a permissive default mode.
         for rel in (
             "evidence",
             "acquisitions",
+            "derived",
             "derived/native",
             "derived/review",
             "work",
@@ -63,7 +70,9 @@ class Case:
             "logs",
             "state",
         ):
-            (case_root / rel).mkdir(parents=True)
+            directory = case_root / rel
+            directory.mkdir(mode=PRIVATE_DIR_MODE, parents=False, exist_ok=False)
+            os.chmod(directory, PRIVATE_DIR_MODE)
 
         obj = cls(
             case_id=case_id,
@@ -110,7 +119,9 @@ class Case:
         data["root"] = "."
         tmp = self.metadata_path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.chmod(tmp, PRIVATE_FILE_MODE)
         tmp.replace(self.metadata_path)
+        os.chmod(self.metadata_path, PRIVATE_FILE_MODE)
 
     def safe_path(self, *parts: str) -> Path:
         candidate = self.root.joinpath(*parts).resolve()

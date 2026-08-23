@@ -14,12 +14,13 @@ permissions:
 jobs:
   dependency-audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
 
@@ -34,23 +35,28 @@ jobs:
 
   public-hygiene:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
 
       - name: Check tracked public text
         run: python scripts/public_hygiene.py
 
+      - name: Verify immutable GitHub Action pins
+        run: python scripts/check_workflow_action_pins.py
+
   history-secrets:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout full history
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 

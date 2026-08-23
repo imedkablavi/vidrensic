@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import stat
 
 import pytest
 
@@ -9,7 +10,11 @@ from vidrensic.acquisition.ddrescue import AcquisitionPlan
 from vidrensic.core.audit import AuditLog
 from vidrensic.core.case import Case
 from vidrensic.core.hashing import forensic_hashes
-from vidrensic.core.jobs import JobStatus
+from vidrensic.core.jobs import JobStatus, JobStore
+
+
+def _mode(path: Path) -> int:
+    return stat.S_IMODE(path.stat().st_mode)
 
 
 def test_case_create_and_audit(tmp_path: Path) -> None:
@@ -23,6 +28,42 @@ def test_case_create_and_audit(tmp_path: Path) -> None:
     assert len(tail) == 64
     loaded = Case.load(case.root)
     assert loaded.case_uuid == case.case_uuid
+
+
+def test_case_artifacts_are_private_by_default(tmp_path: Path) -> None:
+    case = Case.create(tmp_path, "CASE-PRIVATE", examiner="tester")
+    expected_directories = (
+        case.root,
+        case.root / "evidence",
+        case.root / "acquisitions",
+        case.root / "derived",
+        case.root / "derived" / "native",
+        case.root / "derived" / "review",
+        case.root / "work",
+        case.root / "exports",
+        case.root / "reports",
+        case.root / "logs",
+        case.root / "state",
+    )
+    assert all(_mode(path) == 0o700 for path in expected_directories)
+    assert _mode(case.metadata_path) == 0o600
+    assert _mode(case.root / "logs" / "audit.jsonl") == 0o600
+    assert _mode(case.root / "state" / "jobs.sqlite3") == 0o600
+
+
+def test_audit_and_job_store_tighten_existing_file_permissions(tmp_path: Path) -> None:
+    audit_path = tmp_path / "audit.jsonl"
+    audit_path.write_text("", encoding="utf-8")
+    audit_path.chmod(0o644)
+    AuditLog(audit_path).append("permission.test", {})
+    assert _mode(audit_path) == 0o600
+
+    jobs_path = tmp_path / "jobs.sqlite3"
+    jobs = JobStore(jobs_path)
+    jobs_path.chmod(0o644)
+    _ = JobStore(jobs_path)
+    assert _mode(jobs_path) == 0o600
+    assert jobs.get(jobs.create("test", {}).job_id).kind == "test"
 
 
 def test_case_id_rejects_path_traversal(tmp_path: Path) -> None:
