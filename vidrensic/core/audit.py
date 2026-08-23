@@ -12,6 +12,7 @@ from vidrensic import __version__
 
 
 ZERO_HASH = "0" * 64
+PRIVATE_FILE_MODE = 0o600
 
 
 def _canonical(obj: dict) -> bytes:
@@ -90,6 +91,8 @@ class AuditLog:
 
         existed = self.path.exists()
         with self.path.open("a+", encoding="utf-8") as fh:
+            # Tighten permissions for both newly-created and legacy audit logs.
+            os.chmod(self.path, PRIVATE_FILE_MODE)
             fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
             try:
                 last_seq, prev_hash = self._tail_from_handle(fh)
