@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
+from vidrensic.acquisition.binding import ensure_source_binding
 from vidrensic.acquisition.linux import require_safe_source
 
 
@@ -160,14 +161,17 @@ def execute_plan(
     allow_write_enabled_source: bool = False,
     timeout: float | None = None,
 ) -> list[subprocess.CompletedProcess[str]]:
-    """Execute ddrescue without shell interpolation.
+    """Execute ddrescue without shell interpolation and with source-resume binding.
 
-    Existing map files are intentionally reused so interrupted acquisitions can
-    resume. Capacity preflight accounts for bytes already present in a partial
-    output. The evidence source is safety-checked immediately before execution.
+    New acquisitions write a source-binding sidecar next to the ddrescue map
+    before ddrescue starts. A resume verifies that sidecar before reusing the map.
+    Legacy map/output state without a sidecar is fail-closed on first encounter:
+    a pending sidecar is written but ddrescue is not run until the examiner
+    explicitly confirms it using ``python -m vidrensic.acquisition.binding``.
     """
 
     plan.validate()
+    existing_state = plan.output.exists() or plan.mapfile.exists()
     info = require_safe_source(plan.source, allow_write_enabled=allow_write_enabled_source)
     plan.validate_source_geometry(info.size_bytes)
     check_capacity(plan, source_size=info.size_bytes)
@@ -176,6 +180,15 @@ def execute_plan(
 
     if shutil.which("ddrescue") is None:
         raise FileNotFoundError("GNU ddrescue executable was not found in PATH")
+
+    ensure_source_binding(
+        source=plan.source,
+        output=plan.output,
+        mapfile=plan.mapfile,
+        offset=plan.offset,
+        requested_size=plan.size,
+        existing_acquisition_state=existing_state,
+    )
 
     commands = [plan.first_pass_command()]
     retry = plan.retry_command()
