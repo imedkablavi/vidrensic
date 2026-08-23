@@ -183,7 +183,7 @@ def full_decode_check(
     expected_duration: float | None = None,
     reconstruction_ambiguous: bool = False,
     reconstruction_unresolved: bool = False,
-    timeout: float = DEFAULT_FULL_DECODE_TIMEOUT,
+    timeout: float | None = None,
 ) -> MediaQCReport:
     """Decode the complete first video stream and combine media/reconstruction evidence.
 
@@ -193,7 +193,8 @@ def full_decode_check(
     need longer processing must opt into a larger finite value explicitly.
     """
 
-    if timeout <= 0:
+    effective_timeout = DEFAULT_FULL_DECODE_TIMEOUT if timeout is None else timeout
+    if effective_timeout <= 0:
         raise ValueError("full decode timeout must be positive")
     path = path.expanduser().resolve()
     probe = probe_video(path)
@@ -203,7 +204,7 @@ def full_decode_check(
         expected_duration,
     )
     reasons.extend(duration_reasons)
-    measurements["full_decode_timeout_seconds"] = timeout
+    measurements["full_decode_timeout_seconds"] = effective_timeout
 
     if probe.codec is None:
         reasons.append("no video stream detected")
@@ -234,7 +235,7 @@ def full_decode_check(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
+            timeout=effective_timeout,
             check=False,
         )
         decode_error = _bounded_decode_error(proc.stderr)
