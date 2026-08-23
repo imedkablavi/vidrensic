@@ -157,5 +157,5 @@ def test_real_index_case_expectation_and_text_fanout_are_bounded(
 
     monkeypatch.setattr(real_module, "MAX_REAL_EXPECTATIONS_PER_CASE", 1024)
     monkeypatch.setattr(real_module, "MAX_REAL_TEXT_CHARS", 8)
-    with pytest.raises(RealCorpusIndexError, match="corpus_version exceeds 8 characters"):
+    with pytest.raises(RealCorpusIndexError, match="pass_semantics exceeds 8 characters"):
         validate_real_corpus_index(_real_index([]))
