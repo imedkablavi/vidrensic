@@ -8,6 +8,10 @@ import json
 import subprocess
 
 
+MAX_PROBE_JSON_CHARS = 2 * 1024 * 1024
+MAX_DIAGNOSTIC_CHARS = 64 * 1024
+
+
 @dataclass(frozen=True)
 class VideoProbe:
     path: Path
@@ -30,15 +34,25 @@ def _rate(value: str | None) -> float | None:
         return None
 
 
+def _bounded_text(value: str, *, limit: int = MAX_DIAGNOSTIC_CHARS) -> str:
+    if limit <= 0:
+        raise ValueError("diagnostic limit must be positive")
+    if len(value) <= limit:
+        return value.strip()
+    return value[:limit].rstrip() + "\n[diagnostic output truncated]"
+
+
 def probe_video(path: Path, *, timeout: float = 30.0) -> VideoProbe:
+    if timeout <= 0:
+        raise ValueError("ffprobe timeout must be positive")
     path = path.expanduser().resolve()
     proc = subprocess.run(
         [
             "ffprobe",
             "-v",
             "error",
-            "-show_format",
-            "-show_streams",
+            "-show_entries",
+            "format=duration:stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate",
             "-of",
             "json",
             str(path),
@@ -50,18 +64,35 @@ def probe_video(path: Path, *, timeout: float = 30.0) -> VideoProbe:
         check=False,
     )
     if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or f"ffprobe failed for {path}")
-    data = json.loads(proc.stdout)
+        raise RuntimeError(_bounded_text(proc.stderr) or f"ffprobe failed for {path}")
+    if len(proc.stdout) > MAX_PROBE_JSON_CHARS:
+        raise RuntimeError(
+            f"ffprobe JSON exceeded safety limit ({MAX_PROBE_JSON_CHARS} characters)"
+        )
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"ffprobe returned invalid JSON: {exc.msg}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("ffprobe JSON root must be an object")
+
     streams = data.get("streams") or []
-    video = next((s for s in streams if s.get("codec_type") == "video"), None)
+    if not isinstance(streams, list):
+        raise RuntimeError("ffprobe streams field must be a list")
+    video = next(
+        (stream for stream in streams if isinstance(stream, dict) and stream.get("codec_type") == "video"),
+        None,
+    )
     format_info = data.get("format") or {}
+    if not isinstance(format_info, dict):
+        format_info = {}
 
     duration = None
     raw_duration = format_info.get("duration")
     if raw_duration not in (None, "N/A"):
         try:
             duration = float(raw_duration)
-        except ValueError:
+        except (TypeError, ValueError):
             duration = None
 
     return VideoProbe(
@@ -86,12 +117,16 @@ def decode_window(
 ) -> tuple[bool, str]:
     if start_seconds < 0 or duration_seconds <= 0:
         raise ValueError("invalid decode window")
+    if timeout <= 0:
+        raise ValueError("decode timeout must be positive")
     proc = subprocess.run(
         [
             "ffmpeg",
             "-nostdin",
+            "-hide_banner",
             "-v",
             "error",
+            "-xerror",
             "-ss",
             f"{start_seconds:.3f}",
             "-i",
@@ -110,4 +145,4 @@ def decode_window(
         timeout=timeout,
         check=False,
     )
-    return proc.returncode == 0, proc.stderr.strip()
+    return proc.returncode == 0, _bounded_text(proc.stderr)
