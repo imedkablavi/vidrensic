@@ -17,10 +17,8 @@ def _sha256(value: Any, field: str) -> str:
     text = _nonempty_string(value, field).lower()
     if len(text) != 64:
         raise RealCorpusIndexError(f"{field} must contain 64 hexadecimal characters")
-    try:
-        bytes.fromhex(text)
-    except ValueError as exc:
-        raise RealCorpusIndexError(f"{field} must be hexadecimal") from exc
+    if any(character not in "0123456789abcdef" for character in text):
+        raise RealCorpusIndexError(f"{field} must contain only hexadecimal characters")
     return text
 
 
