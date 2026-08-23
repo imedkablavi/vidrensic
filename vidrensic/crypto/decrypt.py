@@ -13,6 +13,23 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 AESMode = Literal["cbc", "ctr"]
 PaddingMode = Literal["none", "pkcs7"]
+MAX_KEY_FILE_BYTES = 256
+PRIVATE_FILE_MODE = 0o600
+
+
+def _open_private_exclusive(path: Path, *, text: bool):
+    fd = os.open(
+        path,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        PRIVATE_FILE_MODE,
+    )
+    try:
+        if text:
+            return os.fdopen(fd, "w", encoding="utf-8")
+        return os.fdopen(fd, "wb", buffering=0)
+    except Exception:
+        os.close(fd)
+        raise
 
 
 @dataclass(frozen=True)
@@ -36,7 +53,14 @@ class KeyMaterial:
     @classmethod
     def from_file(cls, path: Path, *, encoding: Literal["raw", "hex"] = "raw") -> KeyMaterial:
         path = path.expanduser().resolve()
-        data = path.read_bytes()
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        with path.open("rb") as handle:
+            data = handle.read(MAX_KEY_FILE_BYTES + 1)
+        if len(data) > MAX_KEY_FILE_BYTES:
+            raise ValueError(
+                f"key file exceeds {MAX_KEY_FILE_BYTES} bytes; refusing unbounded secret input"
+            )
         if encoding == "hex":
             try:
                 data = bytes.fromhex(data.decode("ascii").strip())
@@ -104,7 +128,7 @@ class DecryptionReceipt:
         if temp.exists():
             raise FileExistsError(f"partial receipt already exists: {temp}")
         try:
-            with temp.open("x", encoding="utf-8") as fh:
+            with _open_private_exclusive(temp, text=True) as fh:
                 json.dump(self.to_dict(), fh, indent=2, sort_keys=True)
                 fh.write("\n")
                 fh.flush()
@@ -143,7 +167,8 @@ def decrypt_aes_file(
 
     This primitive deliberately does not discover keys, IVs or vendor-specific
     encryption layouts. Format plugins must establish those parameters from
-    recorder metadata/evidence before calling it.
+    recorder metadata/evidence before calling it. Decrypted output and receipts
+    are created owner-readable/writable only (`0600`) on POSIX filesystems.
     """
 
     input_path = input_path.expanduser().resolve()
@@ -178,32 +203,33 @@ def decrypt_aes_file(
         raise FileExistsError(f"partial decryption output already exists: {partial}")
 
     try:
-        with input_path.open("rb", buffering=0) as source, partial.open("xb", buffering=0) as target:
-            while True:
-                chunk = source.read(chunk_size)
-                if not chunk:
-                    break
-                in256.update(chunk)
-                in512.update(chunk)
-                clear = decryptor.update(chunk)
-                if unpadder is not None:
-                    clear = unpadder.update(clear)
-                if clear:
-                    target.write(clear)
-                    out256.update(clear)
-                    out512.update(clear)
-                    output_bytes += len(clear)
+        with input_path.open("rb", buffering=0) as source:
+            with _open_private_exclusive(partial, text=False) as target:
+                while True:
+                    chunk = source.read(chunk_size)
+                    if not chunk:
+                        break
+                    in256.update(chunk)
+                    in512.update(chunk)
+                    clear = decryptor.update(chunk)
+                    if unpadder is not None:
+                        clear = unpadder.update(clear)
+                    if clear:
+                        target.write(clear)
+                        out256.update(clear)
+                        out512.update(clear)
+                        output_bytes += len(clear)
 
-            final = decryptor.finalize()
-            if unpadder is not None:
-                final = unpadder.update(final) + unpadder.finalize()
-            if final:
-                target.write(final)
-                out256.update(final)
-                out512.update(final)
-                output_bytes += len(final)
-            target.flush()
-            os.fsync(target.fileno())
+                final = decryptor.finalize()
+                if unpadder is not None:
+                    final = unpadder.update(final) + unpadder.finalize()
+                if final:
+                    target.write(final)
+                    out256.update(final)
+                    out512.update(final)
+                    output_bytes += len(final)
+                target.flush()
+                os.fsync(target.fileno())
         partial.replace(output_path)
     except Exception:
         # Keep no ambiguous plaintext artifact after a failed transform.
