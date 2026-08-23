@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "corpus_id": "vidrensic-real-recorder-v1",
+  "corpus_version": "2026.08",
+  "status": "awaiting-authorized-fixtures",
+  "pass_semantics": "PASS applies only to declared expectations for the exact hashed fixture, manifest version and Vidrensic commit. It is not universal recorder-family validation or independent certification.",
+  "cases": []
+}
