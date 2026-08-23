@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+import subprocess
+import sys
+
 from vidrensic.plugins.wfs.branch_bound import select_global_hypotheses_branch_bound
 from vidrensic.plugins.wfs.global_reconstruct import WFSPathHypothesis, select_global_hypotheses
 
@@ -62,3 +67,33 @@ def test_branch_bound_node_limit_is_explicitly_truncated_after_first_solution() 
     result = select_global_hypotheses_branch_bound(options, max_nodes=4)
     assert result.truncated is True
     assert result.complete_solutions >= 1
+
+
+def test_profile_gate_fails_when_matching_selections_are_truncated(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    output = tmp_path / "profile.json"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "scripts/profile_wfs_solver.py",
+            "--starts",
+            "2",
+            "--options",
+            "2",
+            "--max-combinations",
+            "1",
+            "--max-nodes",
+            "3",
+            "--out",
+            str(output),
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 2
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["same_selection_observed"] is True
+    assert report["searches_complete"] is False
+    assert report["selection_equivalent"] is False
