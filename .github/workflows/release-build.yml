@@ -7,12 +7,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -25,7 +27,7 @@ jobs:
       - name: Install qualification and build tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e '.[dev]' twine
+          python -m pip install -e '.[dev]' 'build==1.5.0' 'twine==7.0.0' 'cyclonedx-bom==7.3.1'
           python -m pip check
 
       - name: Source release qualification
@@ -55,6 +57,33 @@ jobs:
           vidrensic validate corpus validation_corpus/corpus.json --out wheel-validation-report.json
           python -c "import json; r=json.load(open('wheel-validation-report.json')); assert r['status'] == 'PASS'"
 
+      - name: Generate validated CycloneDX runtime SBOM
+        run: |
+          python -m venv .sbom-env
+          .sbom-env/bin/python -m pip install --upgrade pip
+          .sbom-env/bin/python -m pip install dist/*.whl
+          .sbom-env/bin/python -m pip check
+          .sbom-env/bin/python -m pip freeze | \
+            cyclonedx-py requirements \
+              --pyproject pyproject.toml \
+              --mc-type library \
+              --spec-version 1.6 \
+              --output-reproducible \
+              --output-format JSON \
+              --output-file dist/SBOM.cdx.json \
+              -
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('dist/SBOM.cdx.json').read_text(encoding='utf-8'))
+          assert data.get('bomFormat') == 'CycloneDX'
+          assert data.get('specVersion') == '1.6'
+          components = data.get('components') or []
+          names = {str(item.get('name', '')).lower() for item in components if isinstance(item, dict)}
+          assert 'vidrensic' in names, 'SBOM does not contain the built Vidrensic package'
+          PY
+
       - name: Record resolved runtime dependencies
         run: |
           python - <<'PY'
@@ -65,7 +94,7 @@ jobs:
 
           from packaging.requirements import Requirement
 
-          package = metadata.distribution("vidrensic")
+          package = metadata.distribution('vidrensic')
           declared = package.requires or []
           resolved = []
           for raw in declared:
@@ -78,24 +107,24 @@ jobs:
                   version = None
               resolved.append(
                   {
-                      "name": requirement.name,
-                      "declared": raw,
-                      "installed_version": version,
+                      'name': requirement.name,
+                      'declared': raw,
+                      'installed_version': version,
                   }
               )
 
           payload = {
-              "schema_version": 1,
-              "artifact": "qualification-runtime-dependency-inventory",
-              "package": "vidrensic",
-              "package_version": package.version,
-              "python": platform.python_version(),
-              "resolved_runtime_requirements": sorted(resolved, key=lambda item: item["name"].lower()),
-              "claim_limit": "This records direct runtime requirements resolved in the qualification environment; it is not a complete SBOM or provenance attestation.",
+              'schema_version': 1,
+              'artifact': 'qualification-runtime-dependency-inventory',
+              'package': 'vidrensic',
+              'package_version': package.version,
+              'python': platform.python_version(),
+              'resolved_runtime_requirements': sorted(resolved, key=lambda item: item['name'].lower()),
+              'claim_limit': 'Direct runtime requirements resolved in the qualification environment. See SBOM.cdx.json for the CycloneDX runtime inventory.',
           }
-          Path("dist/QUALIFICATION-DEPENDENCIES.json").write_text(
-              json.dumps(payload, indent=2, sort_keys=True) + "\n",
-              encoding="utf-8",
+          Path('dist/QUALIFICATION-DEPENDENCIES.json').write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
           )
           PY
 
@@ -115,35 +144,40 @@ jobs:
           from pathlib import Path
 
           manifest = {
-              "schema_version": 2,
-              "product": "Vidrensic",
-              "ref": os.environ.get("GITHUB_REF_NAME"),
-              "commit": os.environ.get("GITHUB_SHA"),
-              "workflow_run": os.environ.get("GITHUB_RUN_ID"),
-              "python": platform.python_version(),
-              "platform": platform.platform(),
-              "qualification": {
-                  "source_tests": "passed in this workflow before build",
-                  "public_corpus": "synthetic expectations only",
-                  "real_recorder_corpus_index": "admission metadata only; zero cases does not validate a recorder family",
-                  "installed_wheel_corpus": "synthetic expectations only",
-                  "solver_profile": "synthetic equivalence/profile; not a performance guarantee",
-                  "runtime_dependency_inventory": "direct resolved requirements only; not a complete SBOM",
+              'schema_version': 3,
+              'product': 'Vidrensic',
+              'ref': os.environ.get('GITHUB_REF_NAME'),
+              'commit': os.environ.get('GITHUB_SHA'),
+              'workflow_run': os.environ.get('GITHUB_RUN_ID'),
+              'python': platform.python_version(),
+              'platform': platform.platform(),
+              'qualification': {
+                  'source_tests': 'passed in this workflow before build',
+                  'public_corpus': 'synthetic expectations only',
+                  'real_recorder_corpus_index': 'admission metadata only; zero cases does not validate a recorder family',
+                  'installed_wheel_corpus': 'synthetic expectations only',
+                  'solver_profile': 'synthetic equivalence/profile; not a performance guarantee',
+                  'runtime_dependency_inventory': 'direct resolved requirements in qualification environment',
+                  'sbom': 'CycloneDX 1.6 generated from an isolated environment containing the built wheel and its resolved runtime dependencies',
+              },
+              'publication_policy': {
+                  'workflow_dispatch': 'qualification artifact only; no release-signature claim',
+                  'tag': 'publish job must Sigstore-sign and verify the qualified payload before GitHub Release upload',
               },
           }
-          Path("dist/BUILD-MANIFEST.json").write_text(
-              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-              encoding="utf-8",
+          Path('dist/BUILD-MANIFEST.json').write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
           )
           PY
 
       - name: Generate SHA-256 checksums
         run: |
           cd dist
-          sha256sum BUILD-MANIFEST.json QUALIFICATION-DEPENDENCIES.json REAL-CORPUS-INDEX.json SOLVER-PROFILE.json SOURCE-VALIDATION-REPORT.json WHEEL-VALIDATION-REPORT.json *.whl *.tar.gz > SHA256SUMS.txt
+          sha256sum BUILD-MANIFEST.json QUALIFICATION-DEPENDENCIES.json REAL-CORPUS-INDEX.json SBOM.cdx.json SOLVER-PROFILE.json SOURCE-VALIDATION-REPORT.json WHEEL-VALIDATION-REPORT.json *.whl *.tar.gz > SHA256SUMS.txt
           sha256sum -c SHA256SUMS.txt
 
-      - name: Upload Actions artifact
+      - name: Upload qualified release payload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: vidrensic-${{ github.ref_name }}
@@ -152,12 +186,66 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Attach artifacts to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned signing tool
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'sigstore==4.5.0'
+          python -m pip check
+
+      - name: Download qualified payload from this workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: vidrensic-${{ github.ref_name }}
+        run: |
+          mkdir -p release-dist
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" \
+            --dir release-dist
+          test -f release-dist/SHA256SUMS.txt
+          (cd release-dist && sha256sum -c SHA256SUMS.txt)
+
+      - name: Sign qualified payload with Sigstore keyless identity
+        run: |
+          for file in release-dist/*; do
+            test -f "$file"
+            python -m sigstore sign "$file"
+          done
+
+      - name: Verify every Sigstore bundle before publication
+        run: |
+          for file in release-dist/*; do
+            case "$file" in
+              *.sigstore.json) continue ;;
+            esac
+            test -f "$file.sigstore.json"
+            python -m sigstore verify github "$file" \
+              --bundle "$file.sigstore.json" \
+              --repository "$GITHUB_REPOSITORY" \
+              --sha "$GITHUB_SHA" \
+              --ref "$GITHUB_REF"
+          done
+
+      - name: Attach signed artifacts to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
-          gh release upload "$GITHUB_REF_NAME" dist/* \
+          gh release upload "$GITHUB_REF_NAME" release-dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
