@@ -26,6 +26,7 @@ def test_h264_salvage_emits_only_bounded_units_and_marks_idr() -> None:
     assert result.random_access_units == 1
     assert result.units[0].offset >= 4096
     assert result.discarded_unbounded_tail_bytes > 0
+    assert result.scan_truncated is False
 
 
 def test_uncertain_annexb_does_not_invent_codec_or_gop_labels() -> None:
@@ -37,6 +38,7 @@ def test_uncertain_annexb_does_not_invent_codec_or_gop_labels() -> None:
     assert all(item.codec is None for item in result.units)
     assert all(item.nal_type is None for item in result.units)
     assert result.random_access_units == 0
+    assert result.scan_truncated is False
 
 
 def test_salvage_rejects_invalid_bounds() -> None:
@@ -50,4 +52,14 @@ def test_salvage_unit_limit_is_explicitly_incomplete() -> None:
     data = b"".join(b"\x00\x00\x01\x01x" for _ in range(8))
     result = scan_bounded_annexb_units(data, max_units=2)
     assert len(result.units) == 2
+    assert result.scan_truncated is True
+    assert result.discarded_unbounded_tail_bytes == 0
     assert any("max_units" in note for note in result.notes)
+    assert any("not reported" in note for note in result.notes)
+
+
+def test_start_code_storm_does_not_change_bounded_result_size() -> None:
+    data = b"".join(b"\x00\x00\x01\x01x" for _ in range(50_000))
+    result = scan_bounded_annexb_units(data, max_units=3)
+    assert len(result.units) == 3
+    assert result.scan_truncated is True
