@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import runpy
 
-from scripts.public_hygiene import path_policy_findings
+
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "public_hygiene.py"
+path_policy_findings = runpy.run_path(str(SCRIPT))["path_policy_findings"]
 
 
 def test_tracked_forensic_evidence_suffixes_fail_closed() -> None:
