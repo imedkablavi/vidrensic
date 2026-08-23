@@ -35,19 +35,29 @@ class AnnexBSalvageResult:
     bounded_bytes: int
     random_access_units: int
     discarded_unbounded_tail_bytes: int
+    scan_truncated: bool
     notes: tuple[str, ...]
 
 
-def _start_codes(data: bytes) -> tuple[tuple[int, int], ...]:
+def _start_codes(data: bytes, *, limit: int | None = None) -> tuple[tuple[int, int], ...]:
+    """Return Annex-B start-code offsets without unbounded match accumulation."""
+
+    if limit is not None and limit <= 0:
+        raise ValueError("limit must be positive")
+
     found: list[tuple[int, int]] = []
     position = 0
     while position + 3 <= len(data):
         if data[position : position + 4] == b"\x00\x00\x00\x01":
             found.append((position, 4))
+            if limit is not None and len(found) >= limit:
+                break
             position += 4
             continue
-        if data[position : position + 3] == b"\x00\x00\x01":
+        if data[position : position + 3] == b"\x00\x01"[:0] + b"\x00\x00\x01":
             found.append((position, 3))
+            if limit is not None and len(found) >= limit:
+                break
             position += 3
             continue
         position += 1
@@ -74,8 +84,10 @@ def scan_bounded_annexb_units(
 
     This is deliberately a salvage primitive, not a decoder and not evidence of
     chronological continuity. Codec-specific NAL/GOP labels are emitted only
-    when the surrounding byte span provides high-confidence parameter-set
-    evidence. The last unbounded candidate is discarded.
+    when the scanned byte span provides high-confidence parameter-set evidence.
+    The last unbounded candidate is discarded. Enumeration retains at most
+    ``max_units + 2`` start-code boundaries so adversarial start-code storms do
+    not create an unbounded offset list.
     """
 
     if base_offset < 0:
@@ -83,14 +95,22 @@ def scan_bounded_annexb_units(
     if max_units <= 0:
         raise ValueError("max_units must be positive")
 
-    evidence = classify_annexb(data)
-    codec = evidence.codec if evidence.confidence >= 0.80 else None
-    starts = _start_codes(data)
-    units: list[SalvagedNALUnit] = []
+    # max_units units require max_units + 1 boundaries. One extra boundary lets
+    # us prove that additional bounded units exist and mark the scan incomplete.
+    starts = _start_codes(data, limit=max_units + 2)
+    scan_truncated = len(starts) == max_units + 2
 
-    for index in range(max(0, len(starts) - 1)):
-        if len(units) >= max_units:
-            break
+    if scan_truncated:
+        scan_end = starts[-1][0] + starts[-1][1]
+        evidence_data = data[:scan_end]
+    else:
+        evidence_data = data
+    evidence = classify_annexb(evidence_data)
+    codec = evidence.codec if evidence.confidence >= 0.80 else None
+
+    units: list[SalvagedNALUnit] = []
+    available_units = max(0, len(starts) - 1)
+    for index in range(min(max_units, available_units)):
         start, prefix_length = starts[index]
         end = starts[index + 1][0]
         header = start + prefix_length
@@ -111,18 +131,23 @@ def scan_bounded_annexb_units(
 
     bounded_bytes = sum(item.size for item in units)
     discarded_tail = 0
-    if starts:
+    if starts and not scan_truncated:
         last_start = starts[-1][0]
         discarded_tail = len(data) - last_start
 
     notes = [
         "salvage units are byte-range evidence only; recorder-frame continuity is not implied",
         "the final Annex-B candidate is discarded because its end is not bounded by a later start code",
-        "codec/NAL/GOP labels require high-confidence parameter-set evidence from the damaged span",
+        "codec/NAL/GOP labels require high-confidence parameter-set evidence from the scanned damaged span",
         "salvage output must remain REVIEW/UNKNOWN until validated against recorder-specific ground truth",
     ]
-    if len(units) >= max_units and len(starts) - 1 > max_units:
-        notes.append("unit enumeration reached max_units and is incomplete")
+    if scan_truncated:
+        notes.extend(
+            (
+                "unit enumeration reached max_units and is incomplete",
+                "unbounded-tail byte count is not reported for a truncated scan because the final start code was not searched",
+            )
+        )
 
     return AnnexBSalvageResult(
         units=tuple(units),
@@ -131,5 +156,6 @@ def scan_bounded_annexb_units(
         bounded_bytes=bounded_bytes,
         random_access_units=sum(item.random_access for item in units),
         discarded_unbounded_tail_bytes=discarded_tail,
+        scan_truncated=scan_truncated,
         notes=tuple(notes),
     )
