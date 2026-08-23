@@ -69,6 +69,14 @@ def test_real_case_requires_source_hash() -> None:
         validate_real_corpus_index(_index([case]))
 
 
+def test_real_case_rejects_whitespace_inside_source_hash() -> None:
+    case = _case()
+    case["source_sha256"] = "ab" * 15 + "  " + "ab" * 16
+    assert len(case["source_sha256"]) == 64
+    with pytest.raises(RealCorpusIndexError, match="only hexadecimal"):
+        validate_real_corpus_index(_index([case]))
+
+
 def test_real_case_requires_legal_basis() -> None:
     case = _case()
     del case["legal_basis"]
