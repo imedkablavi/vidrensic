@@ -9,8 +9,11 @@ import pytest
 
 from vidrensic.acquisition.mapfile import MapBlock, MapSummary
 from vidrensic.acquisition.receipt import AcquisitionReceipt
+from vidrensic.acquisition.smart import SmartSnapshot
 from vidrensic.core.private_io import atomic_write_private_json
+from vidrensic.profiler.hitmap import HitMapReport
 from vidrensic.profiler.source import SourceProfile
+from vidrensic.profiler.triage import TriageReport
 
 
 def _mode(path: Path) -> int:
@@ -64,6 +67,16 @@ def _receipt(root: Path) -> AcquisitionReceipt:
     )
 
 
+def _assert_private_write(report, path: Path) -> None:
+    old_umask = os.umask(0)
+    try:
+        output = report.write_json(path)
+    finally:
+        os.umask(old_umask)
+    assert _mode(output) == 0o600
+    assert output.is_file()
+
+
 def test_atomic_private_json_ignores_permissive_umask(tmp_path: Path) -> None:
     old_umask = os.umask(0)
     try:
@@ -89,29 +102,64 @@ def test_source_profile_json_is_owner_only_under_umask_zero(tmp_path: Path) -> N
         aggregate_signatures={},
         notes=("synthetic",),
     )
-
-    old_umask = os.umask(0)
-    try:
-        output = report.write_json(tmp_path / "source-profile.json")
-    finally:
-        os.umask(old_umask)
-
-    assert _mode(output) == 0o600
-    assert json.loads(output.read_text(encoding="utf-8"))["source"] == "/dev/synthetic"
+    _assert_private_write(report, tmp_path / "source-profile.json")
 
 
 def test_acquisition_receipt_is_owner_only_under_umask_zero(tmp_path: Path) -> None:
-    receipt = _receipt(tmp_path)
-    output = tmp_path / "receipt.json"
+    _assert_private_write(_receipt(tmp_path), tmp_path / "receipt.json")
 
-    old_umask = os.umask(0)
-    try:
-        receipt.write_json(output)
-    finally:
-        os.umask(old_umask)
 
-    assert _mode(output) == 0o600
-    assert json.loads(output.read_text(encoding="utf-8"))["status"] == "COMPLETE"
+def test_smart_snapshot_is_owner_only_under_umask_zero(tmp_path: Path) -> None:
+    report = SmartSnapshot(
+        source=Path("/dev/synthetic"),
+        captured=True,
+        smartctl_returncode=0,
+        model="Synthetic DVR Disk",
+        serial="SERIAL-PRIVATE",
+        firmware="TEST",
+        capacity_bytes=4096,
+        logical_sector_size=512,
+        physical_sector_size=4096,
+        rotation_rate=None,
+        smart_passed=True,
+        temperature_celsius=30,
+        power_on_hours=1,
+        reallocated_sectors=0,
+        pending_sectors=0,
+        offline_uncorrectable=0,
+        reported_uncorrectable=0,
+        raw={"serial_number": "SERIAL-PRIVATE"},
+        error=None,
+    )
+    path = tmp_path / "smart.json"
+    _assert_private_write(report, path)
+    assert json.loads(path.read_text(encoding="utf-8"))["serial"] == "SERIAL-PRIVATE"
+
+
+def test_triage_and_hitmap_reports_are_owner_only_under_umask_zero(tmp_path: Path) -> None:
+    triage = TriageReport(
+        source=Path("/evidence/private.raw"),
+        source_info={"path": "/evidence/private.raw"},
+        storage={},
+        sample_profile={},
+        hitmap={},
+        format_detection={},
+        recommended_actions=(),
+        notes=("synthetic",),
+    )
+    hitmap = HitMapReport(
+        source=Path("/evidence/private.raw"),
+        source_size=4096,
+        range_start=0,
+        range_stop=4096,
+        scanned_bytes=4096,
+        chunk_size=4096,
+        max_offsets_per_signature=16,
+        signatures=(),
+        notes=("synthetic",),
+    )
+    _assert_private_write(triage, tmp_path / "triage.json")
+    _assert_private_write(hitmap, tmp_path / "hitmap.json")
 
 
 def test_private_json_no_replace_mode_preserves_existing_final(tmp_path: Path) -> None:

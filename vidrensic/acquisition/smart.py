@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 
 from vidrensic.acquisition.linux import require_safe_source
+from vidrensic.core.private_io import atomic_write_private_json
 
 
 MAX_SMARTCTL_STDOUT_BYTES = 4 * 1024 * 1024
@@ -62,12 +63,7 @@ class SmartSnapshot:
         }
 
     def write_json(self, output: Path) -> Path:
-        output = output.expanduser().resolve()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        temp = output.with_suffix(output.suffix + ".tmp")
-        temp.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        temp.replace(output)
-        return output
+        return atomic_write_private_json(output, self.to_dict(), allow_replace=True)
 
 
 def _nested(data: dict[str, Any], *path: str) -> Any:
