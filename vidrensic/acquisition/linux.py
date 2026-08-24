@@ -106,7 +106,9 @@ def _bounded_error(stderr: bytes, fallback: str) -> str:
     return value or fallback
 
 
-def _block_size(path: Path) -> int:
+def block_device_size(path: Path) -> int:
+    """Return a Linux block-device size through a bounded `blockdev` probe."""
+
     returncode, stdout, stderr = _run_bounded_tool(
         "blockdev",
         ["--getsize64", str(path)],
@@ -123,6 +125,12 @@ def _block_size(path: Path) -> int:
     if value <= 0:
         raise OSError("blockdev returned a non-positive source size")
     return value
+
+
+# Compatibility alias for existing internal callers/tests. New code should use
+# the named helper so WFS and acquisition source inspection share one bounded
+# block-size implementation instead of duplicating subprocess behavior.
+_block_size = block_device_size
 
 
 def _sysfs_ro(major: int, minor: int) -> bool | None:
@@ -275,7 +283,7 @@ def inspect_source(path: Path) -> SourceInfo:
     if is_block:
         major = os.major(st.st_rdev)
         minor = os.minor(st.st_rdev)
-        size = _block_size(path)
+        size = block_device_size(path)
         ro = _sysfs_ro(major, minor)
         mounts = _mounted_paths(_device_ids(path, major, minor))
         serial, wwn, model = _block_identity(path)
