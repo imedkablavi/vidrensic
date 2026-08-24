@@ -58,6 +58,8 @@ def _receipt(root: Path) -> AcquisitionReceipt:
         map_sha256="22" * 32,
         map_sha512=None,
         output_hash_skipped=False,
+        output_hash_stable=True,
+        map_hash_stable=True,
         status="COMPLETE",
         reasons=(),
     )
