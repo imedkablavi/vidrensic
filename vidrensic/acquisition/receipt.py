@@ -5,6 +5,7 @@ from hashlib import sha256
 from pathlib import Path
 import json
 import os
+import stat
 
 from vidrensic.acquisition.binding import (
     CONFIRMED_STATES,
@@ -20,7 +21,11 @@ from vidrensic.acquisition.ddrescue import (
 from vidrensic.acquisition.linux import SourceInfo
 from vidrensic.acquisition.mapfile import MapSummary, parse_mapfile
 from vidrensic.core.audit import AuditLog, MAX_AUDIT_LINE_CHARS
-from vidrensic.core.hashing import forensic_hashes
+from vidrensic.core.hashing import (
+    FileChangedDuringHashError,
+    forensic_hashes_stable,
+)
+from vidrensic.core.models import HashSet
 from vidrensic.core.provenance import fingerprint_source, require_same_source
 
 
@@ -44,9 +49,11 @@ class AcquisitionReceipt:
     map_summary: MapSummary
     output_sha256: str | None
     output_sha512: str | None
-    map_sha256: str
+    map_sha256: str | None
     map_sha512: str | None
     output_hash_skipped: bool
+    output_hash_stable: bool | None
+    map_hash_stable: bool
     status: str
     reasons: tuple[str, ...]
     source_binding_path: Path | None = None
@@ -62,7 +69,7 @@ class AcquisitionReceipt:
 
     def to_dict(self) -> dict:
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "operation": "acquisition.ddrescue",
             "status": self.status,
             "reasons": list(self.reasons),
@@ -83,11 +90,13 @@ class AcquisitionReceipt:
                 "sha256": self.output_sha256,
                 "sha512": self.output_sha512,
                 "hash_skipped": self.output_hash_skipped,
+                "hash_stable": self.output_hash_stable,
             },
             "mapfile": {
                 "path": str(self.mapfile),
                 "sha256": self.map_sha256,
                 "sha512": self.map_sha512,
+                "hash_stable": self.map_hash_stable,
                 "summary": self.map_summary.to_dict(),
             },
             "provenance": {
@@ -113,7 +122,8 @@ class AcquisitionReceipt:
             "ddrescue_version": self.ddrescue_version,
             "return_codes": list(self.return_codes),
             "forensic_notes": [
-                "hashes bind the receipt to exact acquisition/map/provenance-sidecar bytes, not to an independently full-hashed source disk",
+                "artifact hashes are emitted only when one descriptor-based hash pass and surrounding pathname identity checks establish local file stability",
+                "hash stability is a local consistency check, not filesystem snapshotting or protection from a privileged adversary",
                 "source identity is rechecked against the persisted source binding before COMPLETE is possible",
                 "the final ddrescue tool-audit record must be a successful session whose return codes match this receipt",
                 "a newer started/pass event without a terminal session event forces REVIEW",
@@ -170,6 +180,38 @@ def _bounded_sha256(path: Path, *, max_bytes: int, label: str) -> str:
                 raise ValueError(f"{label} exceeds maximum size of {max_bytes} bytes")
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _artifact_identity(path: Path) -> tuple[int, int, int, int, int]:
+    try:
+        value = path.lstat()
+    except OSError as exc:
+        raise FileChangedDuringHashError(f"artifact became unavailable: {path}") from exc
+    if stat.S_ISLNK(value.st_mode):
+        raise FileChangedDuringHashError(f"artifact may not be a symlink: {path}")
+    if not stat.S_ISREG(value.st_mode):
+        raise FileChangedDuringHashError(f"artifact is not a regular file: {path}")
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def _stable_artifact_hash(path: Path) -> tuple[HashSet, int]:
+    """Return hashes/size only if the pathname remains one stable regular file."""
+
+    absolute = path.expanduser().absolute()
+    before = _artifact_identity(absolute)
+    hashes = forensic_hashes_stable(absolute)
+    after = _artifact_identity(absolute)
+    if before != after:
+        raise FileChangedDuringHashError(
+            f"artifact identity changed across forensic hash verification: {absolute}"
+        )
+    return hashes, after[2]
 
 
 def _binding_provenance(
@@ -372,19 +414,52 @@ def build_acquisition_receipt(
         raise FileNotFoundError(f"ddrescue mapfile does not exist: {plan.mapfile}")
 
     normalized_return_codes = tuple(return_codes)
+    reasons: list[str] = []
+
+    map_identity_before = _artifact_identity(plan.mapfile.expanduser().absolute())
     map_summary = parse_mapfile(
         plan.mapfile,
         expected_start=plan.offset,
         expected_size=requested_size,
     )
-    map_hashes = forensic_hashes(plan.mapfile)
-    output_hashes = forensic_hashes(plan.output) if hash_output else None
-    output_size = plan.output.stat().st_size
+    map_hashes: HashSet | None = None
+    map_hash_stable = False
+    try:
+        map_hashes, _ = _stable_artifact_hash(plan.mapfile)
+        if map_identity_before != _artifact_identity(plan.mapfile.expanduser().absolute()):
+            raise FileChangedDuringHashError(
+                "ddrescue map changed between parsing and stable hashing"
+            )
+        map_hash_stable = True
+    except (OSError, FileChangedDuringHashError) as exc:
+        reasons.append(f"ddrescue map hash is not stable: {exc}")
+
+    output_hashes: HashSet | None = None
+    output_hash_stable: bool | None = None if not hash_output else False
+    try:
+        output_identity_before = _artifact_identity(plan.output.expanduser().absolute())
+        output_size = output_identity_before[2]
+    except (OSError, FileChangedDuringHashError) as exc:
+        raise FileNotFoundError(f"acquisition output is not a stable regular file: {exc}") from exc
+
+    if hash_output:
+        try:
+            output_hashes, output_size = _stable_artifact_hash(plan.output)
+            if output_identity_before != _artifact_identity(plan.output.expanduser().absolute()):
+                raise FileChangedDuringHashError(
+                    "acquisition output changed across stable hash verification"
+                )
+            output_hash_stable = True
+        except (OSError, FileChangedDuringHashError) as exc:
+            output_hashes = None
+            output_hash_stable = False
+            reasons.append(f"acquisition output hash is not stable: {exc}")
 
     binding, binding_reasons = _binding_provenance(plan, source_info)
     tool_audit, tool_reasons = _tool_audit_provenance(plan, normalized_return_codes)
+    reasons.extend(binding_reasons)
+    reasons.extend(tool_reasons)
 
-    reasons: list[str] = [*binding_reasons, *tool_reasons]
     if not normalized_return_codes or any(code != 0 for code in normalized_return_codes):
         reasons.append(f"ddrescue return codes are not all zero: {list(normalized_return_codes)}")
     if map_summary.complete_for_expected_range is not True:
@@ -412,9 +487,11 @@ def build_acquisition_receipt(
         map_summary=map_summary,
         output_sha256=output_hashes.sha256 if output_hashes else None,
         output_sha512=output_hashes.sha512 if output_hashes else None,
-        map_sha256=map_hashes.sha256,
-        map_sha512=map_hashes.sha512,
+        map_sha256=map_hashes.sha256 if map_hashes else None,
+        map_sha512=map_hashes.sha512 if map_hashes else None,
         output_hash_skipped=not hash_output,
+        output_hash_stable=output_hash_stable,
+        map_hash_stable=map_hash_stable,
         status=status,
         reasons=tuple(reasons),
         source_binding_path=binding["path"] if isinstance(binding["path"], Path) else None,
