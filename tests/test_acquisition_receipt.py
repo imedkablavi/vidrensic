@@ -75,7 +75,9 @@ def test_complete_receipt_requires_map_range_and_hashes(tmp_path: Path) -> None:
     receipt = build_acquisition_receipt(plan, _source_info(source), [0])
     assert receipt.status == "COMPLETE"
     assert receipt.output_sha256 is not None
+    assert receipt.output_hash_stable is True
     assert receipt.map_sha256 is not None
+    assert receipt.map_hash_stable is True
     assert receipt.map_summary.complete_for_expected_range is True
     assert receipt.source_binding_sha256 is not None
     assert receipt.source_binding_state == "confirmed-new"
@@ -83,7 +85,9 @@ def test_complete_receipt_requires_map_range_and_hashes(tmp_path: Path) -> None:
     assert receipt.tool_audit_sha256 is not None
     assert receipt.tool_audit_return_codes == (0,)
     data = receipt.to_dict()
-    assert data["schema_version"] == 2
+    assert data["schema_version"] == 3
+    assert data["output"]["hash_stable"] is True
+    assert data["mapfile"]["hash_stable"] is True
     assert data["provenance"]["tool_audit"]["valid"] is True
 
 
@@ -101,6 +105,7 @@ def test_receipt_review_when_map_has_unresolved_ranges(tmp_path: Path) -> None:
     _provenance(plan, (0,))
     receipt = build_acquisition_receipt(plan, _source_info(source), [0])
     assert receipt.status == "REVIEW"
+    assert receipt.map_hash_stable is True
     assert any("map" in reason.lower() for reason in receipt.reasons)
 
 
@@ -122,6 +127,7 @@ def test_receipt_review_when_output_hash_is_skipped(tmp_path: Path) -> None:
     assert receipt.status == "REVIEW"
     assert receipt.output_sha256 is None
     assert receipt.output_hash_skipped is True
+    assert receipt.output_hash_stable is None
 
 
 def test_receipt_rejects_truncated_output(tmp_path: Path) -> None:
@@ -135,4 +141,5 @@ def test_receipt_rejects_truncated_output(tmp_path: Path) -> None:
     _provenance(plan, (0,))
     receipt = build_acquisition_receipt(plan, _source_info(source), [0])
     assert receipt.status == "REVIEW"
+    assert receipt.output_hash_stable is True
     assert any("smaller" in reason for reason in receipt.reasons)
