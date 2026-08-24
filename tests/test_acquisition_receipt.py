@@ -11,18 +11,12 @@ from vidrensic.core.audit import AuditLog
 
 def _source_info(source: Path) -> SourceInfo:
     return SourceInfo(
-        path=source,
-        size_bytes=16,
+        path=source.resolve(),
+        exists=True,
         is_block_device=False,
+        size_bytes=16,
         read_only=None,
         mounted_at=(),
-        filesystem_device=None,
-        inode=None,
-        block_major=None,
-        block_minor=None,
-        serial=None,
-        wwn=None,
-        model=None,
     )
 
 
