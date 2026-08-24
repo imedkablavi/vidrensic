@@ -9,8 +9,27 @@ import pytest
 from vidrensic.core.hashing import (
     FileChangedDuringHashError,
     forensic_hashes_stable,
+    hash_file,
     hash_file_stable,
 )
+
+
+def test_existing_hash_file_api_remains_unchanged(tmp_path: Path) -> None:
+    path = tmp_path / "artifact.bin"
+    payload = b"compatibility"
+    path.write_bytes(payload)
+    progress: list[tuple[int, int]] = []
+
+    result = hash_file(
+        path,
+        ("sha256",),
+        block_size=4,
+        progress=lambda done, total: progress.append((done, total)),
+    )
+
+    assert result == {"sha256": sha256(payload).hexdigest()}
+    assert progress
+    assert progress[-1] == (len(payload), len(payload))
 
 
 def test_stable_hash_matches_sha256_for_unchanged_regular_file(tmp_path: Path) -> None:
