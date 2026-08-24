@@ -15,6 +15,8 @@ from vidrensic.core.hashing import hash_file
 
 FAT32_MAX_FILE_BYTES = 4 * 1024**3 - 1
 MAX_DDRESCUE_VERSION_BYTES = 64 * 1024
+MAX_FINDMNT_STDOUT_BYTES = 64 * 1024
+MAX_FINDMNT_STDERR_BYTES = 64 * 1024
 
 
 @dataclass(frozen=True)
@@ -224,18 +226,59 @@ class AcquisitionPlan:
         return max(0, required - self.existing_output_bytes)
 
 
-def _filesystem_type(path: Path) -> str | None:
-    proc = subprocess.run(
-        ["findmnt", "-n", "-o", "FSTYPE", "-T", str(path)],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
+def _filesystem_type(path: Path) -> str:
+    discovered = shutil.which("findmnt")
+    if discovered is None:
+        raise FileNotFoundError("findmnt is required for acquisition destination safety checks")
+    try:
+        executable = Path(discovered).expanduser().resolve(strict=True)
+    except OSError as exc:
+        raise FileNotFoundError(f"resolved findmnt executable is unavailable: {discovered}") from exc
+    if not executable.is_file() or not os.access(executable, os.X_OK):
+        raise PermissionError(f"resolved findmnt path is not an executable regular file: {executable}")
+
+    try:
+        with tempfile.TemporaryFile(mode="w+b") as stdout_file:
+            with tempfile.TemporaryFile(mode="w+b") as stderr_file:
+                try:
+                    proc = subprocess.run(
+                        [str(executable), "-n", "-o", "FSTYPE", "-T", str(path)],
+                        stdin=subprocess.DEVNULL,
+                        stdout=stdout_file,
+                        stderr=stderr_file,
+                        timeout=10,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    raise OSError(f"findmnt timed out after {exc.timeout} seconds") from exc
+                stdout_file.flush()
+                stdout_file.seek(0)
+                stdout = stdout_file.read(MAX_FINDMNT_STDOUT_BYTES + 1)
+                stderr_file.flush()
+                stderr_file.seek(0)
+                stderr = stderr_file.read(MAX_FINDMNT_STDERR_BYTES + 1)
+    except OSError:
+        raise
+
+    if len(stdout) > MAX_FINDMNT_STDOUT_BYTES:
+        raise OSError(f"findmnt stdout exceeded safety limit of {MAX_FINDMNT_STDOUT_BYTES} bytes")
+    if len(stderr) > MAX_FINDMNT_STDERR_BYTES:
+        raise OSError(f"findmnt stderr exceeded safety limit of {MAX_FINDMNT_STDERR_BYTES} bytes")
     if proc.returncode != 0:
-        return None
-    value = proc.stdout.strip().lower()
-    return value or None
+        detail = stderr.decode("utf-8", errors="replace").strip()
+        raise OSError(detail or f"findmnt exited with status {proc.returncode}")
+
+    try:
+        text = stdout.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise OSError("findmnt filesystem type was not ASCII") from exc
+    values = [line.strip().lower() for line in text.splitlines() if line.strip()]
+    if len(values) != 1:
+        raise OSError("findmnt did not return exactly one filesystem type")
+    value = values[0]
+    if any(not (char.isalnum() or char in "._+-") for char in value):
+        raise OSError(f"findmnt returned malformed filesystem type: {value!r}")
+    return value
 
 
 def check_capacity(
