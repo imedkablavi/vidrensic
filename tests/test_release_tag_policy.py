@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import runpy
 
 import pytest
 
-from scripts.check_release_tag_policy import (
-    ReleaseTagPolicyError,
-    evaluate_release_tag_policy,
+
+_POLICY = runpy.run_path(
+    str(Path(__file__).resolve().parents[1] / "scripts" / "check_release_tag_policy.py")
 )
+ReleaseTagPolicyError = _POLICY["ReleaseTagPolicyError"]
+evaluate_release_tag_policy = _POLICY["evaluate_release_tag_policy"]
 
 
 def _index(path: Path, *, cases: list[dict] | None = None) -> Path:
