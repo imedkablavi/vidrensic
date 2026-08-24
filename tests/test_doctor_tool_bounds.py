@@ -61,6 +61,25 @@ def test_doctor_rejects_oversized_version_output(
     assert check.error == "version command output exceeded safety limit"
 
 
+def test_doctor_accepts_output_at_exact_safety_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = _executable(tmp_path)
+    monkeypatch.setattr(doctor, "MAX_TOOL_VERSION_STDOUT_BYTES", 8)
+
+    def fake_run(command, **kwargs):
+        kwargs["stdout"].write(b"VERSION\n")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(doctor.subprocess, "run", fake_run)
+
+    check = doctor._first_version_line("ffmpeg", str(executable), ("-version",))
+
+    assert check.available is True
+    assert check.version == "VERSION"
+
+
 def test_doctor_nonzero_version_command_uses_bounded_stderr(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
