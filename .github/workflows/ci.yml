@@ -32,6 +32,17 @@ jobs:
           python -m pip install -e '.[dev]'
           python -m pip check
 
+      - name: Pin reproducibility build tooling
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m pip install 'build==1.5.0' 'setuptools==84.0.0' 'wheel==0.48.0'
+          python - <<'PY'
+          import importlib.metadata as metadata
+          assert metadata.version('build') == '1.5.0'
+          assert metadata.version('setuptools') == '84.0.0'
+          assert metadata.version('wheel') == '0.48.0'
+          PY
+
       - name: Ruff
         run: ruff check vidrensic tests scripts
 
@@ -79,7 +90,20 @@ jobs:
 
       - name: Build source and wheel distributions
         if: matrix.python-version == '3.12'
-        run: python -m build
+        run: |
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          export PYTHONHASHSEED=0
+          python -m build --no-isolation
+
+      - name: Verify byte-for-byte reproducible wheel
+        if: matrix.python-version == '3.12'
+        run: |
+          WHEEL="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          test -n "$WHEEL"
+          python scripts/check_reproducible_wheel.py \
+            --out reproducible-wheel-report.json \
+            --reference-wheel "$WHEEL"
+          python -c "import json; r=json.load(open('reproducible-wheel-report.json')); assert r['reproducible'] is True"
 
       - name: Validate distribution metadata
         if: matrix.python-version == '3.12'
@@ -140,5 +164,6 @@ jobs:
             wheel-validation-report.json
             solver-profile.json
             ci-sbom.cdx.json
+            reproducible-wheel-report.json
           if-no-files-found: error
           retention-days: 14
