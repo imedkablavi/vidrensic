@@ -2,10 +2,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 import json
 import os
+import re
+import shutil
 import stat
 import subprocess
+import tempfile
+
+
+MAX_BLOCKDEV_STDOUT_BYTES = 64 * 1024
+MAX_BLOCKDEV_STDERR_BYTES = 64 * 1024
+MAX_LSBLK_IDS_STDOUT_BYTES = 2 * 1024 * 1024
+MAX_LSBLK_IDENTITY_STDOUT_BYTES = 1024 * 1024
+MAX_LSBLK_STDERR_BYTES = 256 * 1024
+MAX_MOUNTINFO_BYTES = 32 * 1024 * 1024
+MAX_MOUNTINFO_LINE_BYTES = 256 * 1024
+_DEVICE_ID_RE = re.compile(r"^[0-9]+:[0-9]+$")
 
 
 @dataclass(frozen=True)
@@ -31,17 +45,92 @@ class SourceInfo:
         return self.read_only is True and not self.mounted_at
 
 
-def _block_size(path: Path) -> int:
-    proc = subprocess.run(
-        ["blockdev", "--getsize64", str(path)],
-        capture_output=True,
-        text=True,
+def _resolve_tool(name: str) -> str:
+    executable = shutil.which(name)
+    if executable is None:
+        raise FileNotFoundError(f"required Linux source-probe tool was not found: {name}")
+    return str(Path(executable).resolve())
+
+
+def _read_bounded(handle: BinaryIO, *, limit: int, label: str) -> bytes:
+    handle.flush()
+    handle.seek(0)
+    data = handle.read(limit + 1)
+    if len(data) > limit:
+        raise OSError(f"{label} exceeded safety limit of {limit} bytes")
+    return data
+
+
+def _run_bounded_tool(
+    name: str,
+    args: list[str],
+    *,
+    timeout: float,
+    stdout_limit: int,
+    stderr_limit: int,
+) -> tuple[int, bytes, bytes]:
+    """Run one probe tool without PIPE-backed unbounded output buffering."""
+
+    executable = _resolve_tool(name)
+    try:
+        with tempfile.TemporaryFile(mode="w+b") as stdout_file:
+            with tempfile.TemporaryFile(mode="w+b") as stderr_file:
+                try:
+                    proc = subprocess.run(
+                        [executable, *args],
+                        stdin=subprocess.DEVNULL,
+                        stdout=stdout_file,
+                        stderr=stderr_file,
+                        timeout=timeout,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    raise OSError(f"{name} timed out after {exc.timeout} seconds") from exc
+                stdout = _read_bounded(
+                    stdout_file,
+                    limit=stdout_limit,
+                    label=f"{name} stdout",
+                )
+                stderr = _read_bounded(
+                    stderr_file,
+                    limit=stderr_limit,
+                    label=f"{name} stderr",
+                )
+    except OSError:
+        raise
+    return proc.returncode, stdout, stderr
+
+
+def _bounded_error(stderr: bytes, fallback: str) -> str:
+    value = stderr.decode("utf-8", errors="replace").strip()
+    return value or fallback
+
+
+def block_device_size(path: Path) -> int:
+    """Return a Linux block-device size through a bounded `blockdev` probe."""
+
+    returncode, stdout, stderr = _run_bounded_tool(
+        "blockdev",
+        ["--getsize64", str(path)],
         timeout=15,
-        check=False,
+        stdout_limit=MAX_BLOCKDEV_STDOUT_BYTES,
+        stderr_limit=MAX_BLOCKDEV_STDERR_BYTES,
     )
-    if proc.returncode != 0:
-        raise OSError(proc.stderr.strip() or f"unable to determine size of {path}")
-    return int(proc.stdout.strip())
+    if returncode != 0:
+        raise OSError(_bounded_error(stderr, f"unable to determine size of {path}"))
+    try:
+        value = int(stdout.decode("ascii").strip())
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise OSError("blockdev returned an invalid size") from exc
+    if value <= 0:
+        raise OSError("blockdev returned a non-positive source size")
+    return value
+
+
+# Compatibility alias for existing internal callers/tests. New code should use
+# the named helper so WFS and acquisition source inspection share one bounded
+# block-size implementation instead of duplicating subprocess behavior.
+_block_size = block_device_size
 
 
 def _sysfs_ro(major: int, minor: int) -> bool | None:
@@ -50,9 +139,13 @@ def _sysfs_ro(major: int, minor: int) -> bool | None:
         return None
     try:
         resolved = link.resolve()
-        value = (resolved / "ro").read_text(encoding="ascii").strip()
+        with (resolved / "ro").open("rb") as handle:
+            raw = handle.read(17)
     except OSError:
         return None
+    if len(raw) > 16:
+        return None
+    value = raw.decode("ascii", errors="ignore").strip()
     if value == "1":
         return True
     if value == "0":
@@ -61,37 +154,79 @@ def _sysfs_ro(major: int, minor: int) -> bool | None:
 
 
 def _device_ids(path: Path, major: int, minor: int) -> set[str]:
-    """Return source and descendant MAJ:MIN values (partitions/LVs when lsblk reports them)."""
+    """Return source and descendant MAJ:MIN values, failing closed on probe errors.
+
+    Descendant enumeration is part of the mounted-device safety decision. A
+    failed/truncated/malformed `lsblk` result must therefore not be interpreted as
+    "no descendants".
+    """
+
+    returncode, stdout, stderr = _run_bounded_tool(
+        "lsblk",
+        ["-nr", "-o", "MAJ:MIN", str(path)],
+        timeout=15,
+        stdout_limit=MAX_LSBLK_IDS_STDOUT_BYTES,
+        stderr_limit=MAX_LSBLK_STDERR_BYTES,
+    )
+    if returncode != 0:
+        raise OSError(_bounded_error(stderr, "lsblk descendant enumeration failed"))
+    try:
+        text = stdout.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise OSError("lsblk descendant enumeration was not ASCII") from exc
 
     ids = {f"{major}:{minor}"}
-    proc = subprocess.run(
-        ["lsblk", "-nr", "-o", "MAJ:MIN", str(path)],
-        capture_output=True,
-        text=True,
-        timeout=15,
-        check=False,
-    )
-    if proc.returncode == 0:
-        for line in proc.stdout.splitlines():
-            value = line.strip()
-            if value and ":" in value:
-                ids.add(value)
+    for line in text.splitlines():
+        value = line.strip()
+        if not value:
+            continue
+        if _DEVICE_ID_RE.fullmatch(value) is None:
+            raise OSError(f"lsblk returned malformed MAJ:MIN value: {value!r}")
+        ids.add(value)
     return ids
 
 
-def _mounted_paths(device_ids: set[str]) -> tuple[str, ...]:
-    mounts: list[str] = []
-    mountinfo = Path("/proc/self/mountinfo")
+def _mounted_paths(
+    device_ids: set[str],
+    *,
+    mountinfo: Path = Path("/proc/self/mountinfo"),
+) -> tuple[str, ...]:
+    """Stream mountinfo with explicit byte/line bounds.
+
+    Failure to inspect mountinfo for a block-device source is not equivalent to
+    an unmounted source, so malformed or unavailable state raises instead of
+    returning an empty mount list.
+    """
+
     if not mountinfo.exists():
-        return ()
-    for line in mountinfo.read_text(encoding="utf-8", errors="replace").splitlines():
-        fields = line.split()
-        if len(fields) < 5:
-            continue
-        dev_id = fields[2]
-        mount_point = fields[4].replace("\\040", " ")
-        if dev_id in device_ids:
-            mounts.append(mount_point)
+        raise OSError(f"mount information is unavailable: {mountinfo}")
+    mounts: list[str] = []
+    total = 0
+    line_no = 0
+    with mountinfo.open("rb") as handle:
+        while True:
+            raw = handle.readline(MAX_MOUNTINFO_LINE_BYTES + 1)
+            if not raw:
+                break
+            line_no += 1
+            total += len(raw)
+            if total > MAX_MOUNTINFO_BYTES:
+                raise OSError(
+                    f"mountinfo exceeded safety limit of {MAX_MOUNTINFO_BYTES} bytes"
+                )
+            if len(raw) > MAX_MOUNTINFO_LINE_BYTES:
+                raise OSError(
+                    f"mountinfo line {line_no} exceeded safety limit of "
+                    f"{MAX_MOUNTINFO_LINE_BYTES} bytes"
+                )
+            line = raw.decode("utf-8", errors="replace")
+            fields = line.split()
+            if len(fields) < 5:
+                raise OSError(f"mountinfo line {line_no} is malformed")
+            dev_id = fields[2]
+            mount_point = fields[4].replace("\\040", " ")
+            if dev_id in device_ids:
+                mounts.append(mount_point)
     return tuple(sorted(set(mounts)))
 
 
@@ -103,29 +238,28 @@ def _clean_identity(value: object) -> str | None:
 
 
 def _block_identity(path: Path) -> tuple[str | None, str | None, str | None]:
-    """Return best-effort serial/WWN/model hints without changing the device.
+    """Return bounded, best-effort serial/WWN/model hints without changing the device.
 
-    These fields improve resume identity across device-node renumbering, but some
-    USB bridges, virtual devices and storage stacks legitimately expose none of
-    them. Callers must retain a weaker-identity path for those cases rather than
-    inventing identifiers.
+    Identity hints improve resume binding but are not required to make the mount
+    safety decision. Probe failure therefore degrades to the documented weaker
+    device-node fallback instead of inventing identifiers.
     """
 
     try:
-        proc = subprocess.run(
-            ["lsblk", "-J", "-d", "-o", "SERIAL,WWN,MODEL", str(path)],
-            capture_output=True,
-            text=True,
+        returncode, stdout, _stderr = _run_bounded_tool(
+            "lsblk",
+            ["-J", "-d", "-o", "SERIAL,WWN,MODEL", str(path)],
             timeout=15,
-            check=False,
+            stdout_limit=MAX_LSBLK_IDENTITY_STDOUT_BYTES,
+            stderr_limit=MAX_LSBLK_STDERR_BYTES,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError:
         return None, None, None
-    if proc.returncode != 0 or len(proc.stdout) > 1024 * 1024:
+    if returncode != 0:
         return None, None, None
     try:
-        payload = json.loads(proc.stdout)
-    except json.JSONDecodeError:
+        payload = json.loads(stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return None, None, None
     rows = payload.get("blockdevices") if isinstance(payload, dict) else None
     if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
@@ -149,7 +283,7 @@ def inspect_source(path: Path) -> SourceInfo:
     if is_block:
         major = os.major(st.st_rdev)
         minor = os.minor(st.st_rdev)
-        size = _block_size(path)
+        size = block_device_size(path)
         ro = _sysfs_ro(major, minor)
         mounts = _mounted_paths(_device_ids(path, major, minor))
         serial, wwn, model = _block_identity(path)
