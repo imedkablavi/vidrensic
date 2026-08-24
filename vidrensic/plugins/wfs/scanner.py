@@ -4,29 +4,28 @@ from collections import defaultdict
 from datetime import date
 from pathlib import Path
 import os
+import stat
 
+from vidrensic.acquisition.linux import block_device_size
 from vidrensic.plugins.base import RecordingBoundary
 from vidrensic.plugins.wfs.codec import FRAGMENT_SIZE, fd_timestamp
 
 
 def source_size(fd: int, path: Path) -> int:
+    """Return source size without a second unbounded native-tool subprocess path.
+
+    Regular files use descriptor metadata directly. Linux block devices commonly
+    report ``st_size == 0`` through ``fstat``; only those device descriptors fall
+    back to the shared bounded ``blockdev --getsize64`` probe used by acquisition
+    source inspection.
+    """
+
     st = os.fstat(fd)
     if st.st_size:
         return st.st_size
-    # Linux block devices commonly report st_size=0 through fstat.
-    import subprocess
-
-    proc = subprocess.run(
-        ["blockdev", "--getsize64", str(path)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        timeout=15,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise OSError(proc.stderr.strip() or f"unable to determine source size: {path}")
-    return int(proc.stdout.strip())
+    if stat.S_ISBLK(st.st_mode):
+        return block_device_size(path)
+    return 0
 
 
 def scan_recording_starts(
