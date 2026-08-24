@@ -4,13 +4,13 @@ This demo is intentionally synthetic. It contains **no real CCTV footage and no 
 
 ## 1. Install the development build
 
+Clone once, enter the checkout once, and do not use `sudo` for a user-local checkout:
+
 ```bash
 git clone https://github.com/imedkablavi/vidrensic.git
 cd vidrensic
-python3 -m venv .venv
+bash scripts/setup_dev.sh
 source .venv/bin/activate
-python -m pip install -U pip
-python -m pip install -e '.[dev]'
 ```
 
 Record the version before comparing output:
@@ -23,6 +23,12 @@ vidrensic --version
 
 ```bash
 bash examples/run_demo.sh
+```
+
+Alternatively, setup and run the demo in one command after entering the checkout:
+
+```bash
+bash scripts/setup_dev.sh --demo
 ```
 
 The script creates a deterministic synthetic DHAV-like source, prints its SHA-256 hash, asks Vidrensic to rank format evidence, then performs structurally validated frame carving/channel demultiplexing.
@@ -99,6 +105,26 @@ The demo itself never upgrades a family to validated real-recorder support. That
 
 ## Why the demo is kept in CI
 
-`tests/test_demo_example.py` executes the generator and validates the resulting source against the actual detector/scanner. This prevents the public quick-start path from silently becoming stale while parsers evolve.
+`tests/test_demo_example.py` executes both the generator-level invariant and the public shell demo, including its manifest summary. This prevents the documented quick-start path from silently becoming stale while parsers or manifest schemas evolve.
+
+## Troubleshooting: `pyproject.toml` not found
+
+If pip reports that neither `setup.py` nor `pyproject.toml` exists, the shell is not in the checkout root. Repeated `git clone` and `cd vidrensic` commands can create paths such as `vidrensic/vidrensic/vidrensic`.
+
+From the directory that contains the first checkout, locate the real roots without deleting anything:
+
+```bash
+find "$PWD" -maxdepth 5 -type f -name pyproject.toml -print
+```
+
+Change to one printed parent directory, verify it, and run setup exactly once:
+
+```bash
+cd /path/printed/by/find
+test -f pyproject.toml && test -f examples/run_demo.sh
+bash scripts/setup_dev.sh --demo
+```
+
+If Bash reports `examples/run_demo.shCurrent: No such file or directory`, prose was pasted after the command. Run only `bash examples/run_demo.sh` on its own line.
 
 For release claim boundaries, see `docs/RELEASE_QUALIFICATION.md` and the standalone validation report for the audited release/commit.

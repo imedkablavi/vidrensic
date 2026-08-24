@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import subprocess
 import sys
 
@@ -27,3 +28,26 @@ def test_public_demo_generator_stays_detectable_and_recoverable(tmp_path: Path) 
     assert len(frames) == 12
     assert {frame.header.channel for frame in frames} == {0, 1}
     assert all(frame.structurally_valid for frame in frames)
+
+
+def test_public_demo_shell_path_matches_manifest_schema(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[1]
+    script = root / "examples" / "run_demo.sh"
+    env = os.environ.copy()
+    env["PATH"] = f"{Path(sys.executable).parent}{os.pathsep}{env.get('PATH', '')}"
+    env["PYTHON"] = sys.executable
+
+    completed = subprocess.run(
+        ["bash", str(script), str(tmp_path / "demo")],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=root,
+    )
+
+    assert "frame_count=12" in completed.stdout
+    assert "channels=2" in completed.stdout
+    assert "channel=0 frames=6" in completed.stdout
+    assert "channel=1 frames=6" in completed.stdout
+    assert "Traceback" not in completed.stderr
