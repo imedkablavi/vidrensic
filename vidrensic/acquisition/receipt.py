@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 import json
 import os
 
 from vidrensic.acquisition.binding import (
     CONFIRMED_STATES,
+    MAX_SOURCE_BINDING_BYTES,
     load_source_binding,
     source_binding_path,
 )
@@ -23,7 +25,7 @@ from vidrensic.core.provenance import fingerprint_source, require_same_source
 
 
 PRIVATE_RECEIPT_MODE = 0o600
-TOOL_TERMINAL_EVENTS = frozenset({"ddrescue.session.finished", "ddrescue.session.failed"})
+MAX_TOOL_AUDIT_BYTES = 64 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -100,7 +102,7 @@ class AcquisitionReceipt:
                     "sha256": self.tool_audit_sha256,
                     "tail_hash": self.tool_audit_tail_hash,
                     "valid": self.tool_audit_valid,
-                    "last_terminal_event": self.tool_audit_last_event,
+                    "last_event": self.tool_audit_last_event,
                     "recorded_return_codes": (
                         None
                         if self.tool_audit_return_codes is None
@@ -113,7 +115,8 @@ class AcquisitionReceipt:
             "forensic_notes": [
                 "hashes bind the receipt to exact acquisition/map/provenance-sidecar bytes, not to an independently full-hashed source disk",
                 "source identity is rechecked against the persisted source binding before COMPLETE is possible",
-                "the latest terminal ddrescue tool-audit event must be a successful session whose return codes match this receipt",
+                "the final ddrescue tool-audit record must be a successful session whose return codes match this receipt",
+                "a newer started/pass event without a terminal session event forces REVIEW",
                 "tool-audit/source-binding hashes are integrity evidence, not digital signatures or trusted timestamps",
                 "ddrescue_version is observed in the verification environment and is not substituted for the execution-session tool audit",
                 "a skipped output hash leaves verification incomplete and forces REVIEW status",
@@ -154,6 +157,21 @@ def ddrescue_version() -> str | None:
         return None
 
 
+def _bounded_sha256(path: Path, *, max_bytes: int, label: str) -> str:
+    digest = sha256()
+    read_bytes = 0
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(min(1024 * 1024, max_bytes + 1 - read_bytes))
+            if not chunk:
+                break
+            read_bytes += len(chunk)
+            if read_bytes > max_bytes:
+                raise ValueError(f"{label} exceeds maximum size of {max_bytes} bytes")
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _binding_provenance(
     plan: AcquisitionPlan,
     source_info: SourceInfo,
@@ -173,11 +191,14 @@ def _binding_provenance(
         reasons.append("acquisition source-binding sidecar may not be a symlink")
         return result, reasons
 
-    before_hash = forensic_hashes(path, include_sha512=False).sha256
     try:
+        before_hash = _bounded_sha256(
+            path,
+            max_bytes=MAX_SOURCE_BINDING_BYTES,
+            label="acquisition source-binding sidecar",
+        )
         binding = load_source_binding(path)
     except (OSError, ValueError) as exc:
-        result["sha256"] = before_hash
         reasons.append(f"acquisition source-binding sidecar is invalid: {type(exc).__name__}: {exc}")
         return result, reasons
 
@@ -200,14 +221,22 @@ def _binding_provenance(
     except (OSError, RuntimeError, ValueError) as exc:
         reasons.append(f"current source does not match source-binding identity: {exc}")
 
-    after_hash = forensic_hashes(path, include_sha512=False).sha256
+    try:
+        after_hash = _bounded_sha256(
+            path,
+            max_bytes=MAX_SOURCE_BINDING_BYTES,
+            label="acquisition source-binding sidecar",
+        )
+    except (OSError, ValueError) as exc:
+        reasons.append(f"acquisition source-binding sidecar became unreadable: {type(exc).__name__}: {exc}")
+        return result, reasons
     result["sha256"] = after_hash
     if before_hash != after_hash:
         reasons.append("source-binding sidecar changed during receipt verification")
     return result, reasons
 
 
-def _last_tool_terminal_record(path: Path) -> dict | None:
+def _last_tool_record(path: Path) -> dict | None:
     last: dict | None = None
     with path.open("r", encoding="utf-8") as handle:
         while True:
@@ -219,8 +248,9 @@ def _last_tool_terminal_record(path: Path) -> dict | None:
             if not line.strip():
                 continue
             record = json.loads(line)
-            if isinstance(record, dict) and record.get("event") in TOOL_TERMINAL_EVENTS:
-                last = record
+            if not isinstance(record, dict):
+                raise ValueError("tool-audit record is not an object")
+            last = record
     return last
 
 
@@ -245,6 +275,17 @@ def _tool_audit_provenance(
         reasons.append("ddrescue tool-audit sidecar may not be a symlink")
         return result, reasons
 
+    try:
+        before_hash = _bounded_sha256(
+            path,
+            max_bytes=MAX_TOOL_AUDIT_BYTES,
+            label="ddrescue tool-audit sidecar",
+        )
+    except (OSError, ValueError) as exc:
+        result["valid"] = False
+        reasons.append(f"ddrescue tool-audit sidecar is invalid: {type(exc).__name__}: {exc}")
+        return result, reasons
+
     audit = AuditLog(path)
     ok, tail_or_reason = audit.verify()
     if not ok:
@@ -253,46 +294,62 @@ def _tool_audit_provenance(
         return result, reasons
 
     try:
-        terminal = _last_tool_terminal_record(path)
+        last_record = _last_tool_record(path)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         result["valid"] = False
-        reasons.append(f"ddrescue tool-audit terminal record is unreadable: {type(exc).__name__}: {exc}")
+        reasons.append(f"ddrescue tool-audit final record is unreadable: {type(exc).__name__}: {exc}")
         return result, reasons
 
-    audit_hash = forensic_hashes(path, include_sha512=False).sha256
-    ok_after, after_reason = audit.verify(expected_tail_hash=tail_or_reason)
-    if not ok_after:
+    try:
+        after_hash = _bounded_sha256(
+            path,
+            max_bytes=MAX_TOOL_AUDIT_BYTES,
+            label="ddrescue tool-audit sidecar",
+        )
+    except (OSError, ValueError) as exc:
         result["valid"] = False
-        result["sha256"] = audit_hash
-        reasons.append(f"ddrescue tool-audit changed during receipt verification: {after_reason}")
+        reasons.append(f"ddrescue tool-audit sidecar became unreadable: {type(exc).__name__}: {exc}")
+        return result, reasons
+    ok_after, after_reason = audit.verify(expected_tail_hash=tail_or_reason)
+    if before_hash != after_hash or not ok_after:
+        result["valid"] = False
+        result["sha256"] = after_hash
+        reasons.append(
+            "ddrescue tool-audit changed during receipt verification"
+            if before_hash != after_hash
+            else f"ddrescue tool-audit changed during receipt verification: {after_reason}"
+        )
         return result, reasons
 
-    result["sha256"] = audit_hash
+    result["sha256"] = after_hash
     result["tail_hash"] = tail_or_reason
     result["valid"] = True
-    if terminal is None:
-        reasons.append("ddrescue tool-audit has no terminal execution-session event")
+    if last_record is None:
+        reasons.append("ddrescue tool-audit has no execution-session records")
         return result, reasons
 
-    event = terminal.get("event")
+    event = last_record.get("event")
     result["last_event"] = event
-    details = terminal.get("details")
+    if event != "ddrescue.session.finished":
+        reasons.append(f"latest ddrescue tool-audit event is not a completed session: {event}")
+        return result, reasons
+
+    details = last_record.get("details")
     if not isinstance(details, dict):
-        reasons.append("ddrescue tool-audit terminal event has invalid details")
+        reasons.append("ddrescue tool-audit finished event has invalid details")
         return result, reasons
     recorded = details.get("return_codes")
-    if isinstance(recorded, list) and all(isinstance(code, int) for code in recorded):
+    if isinstance(recorded, list) and all(type(code) is int for code in recorded):
         recorded_codes = tuple(recorded)
         result["return_codes"] = recorded_codes
     else:
         recorded_codes = None
 
-    if event != "ddrescue.session.finished":
-        reasons.append(f"latest terminal ddrescue session is not successful: {event}")
-        return result, reasons
     if recorded_codes is None:
         reasons.append("ddrescue tool-audit finished event has invalid return_codes")
         return result, reasons
+    if details.get("all_zero") is not True:
+        reasons.append("ddrescue tool-audit finished event does not confirm all-zero return codes")
     if recorded_codes != return_codes:
         reasons.append(
             "receipt return codes do not match the latest ddrescue tool-audit session: "
