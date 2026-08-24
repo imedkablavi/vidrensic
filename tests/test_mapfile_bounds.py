@@ -26,6 +26,22 @@ def test_streamed_mapfile_preserves_completion_semantics(tmp_path: Path) -> None
     assert summary.complete_for_expected_range is True
 
 
+def test_mapfile_accepts_line_exactly_at_safety_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mapfile_module, "MAX_MAPFILE_LINE_BYTES", 8)
+    path = tmp_path / "image.map"
+    # Eight bytes including newline. The exact documented limit is accepted;
+    # the following status row remains within the same limit as well.
+    path.write_bytes(b"#123456\n0 1 +\n")
+
+    summary = parse_mapfile(path, expected_start=0, expected_size=1)
+
+    assert summary.complete_for_expected_range is True
+    assert summary.segment_count == 1
+
+
 def test_mapfile_rejects_oversized_logical_line(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
