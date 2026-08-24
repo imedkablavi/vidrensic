@@ -10,7 +10,11 @@ import pytest
 from vidrensic.acquisition.mapfile import MapBlock, MapSummary
 from vidrensic.acquisition.receipt import AcquisitionReceipt
 from vidrensic.acquisition.smart import SmartSnapshot
+from vidrensic.core.models import EvidenceStatus, QCDecision
 from vidrensic.core.private_io import atomic_write_private_json
+from vidrensic.media.probe import VideoProbe
+from vidrensic.media.qc import MediaQCReport
+from vidrensic.plugins.wfs.layout import WFSLayoutProfile
 from vidrensic.profiler.hitmap import HitMapReport
 from vidrensic.profiler.source import SourceProfile
 from vidrensic.profiler.triage import TriageReport
@@ -160,6 +164,46 @@ def test_triage_and_hitmap_reports_are_owner_only_under_umask_zero(tmp_path: Pat
     )
     _assert_private_write(triage, tmp_path / "triage.json")
     _assert_private_write(hitmap, tmp_path / "hitmap.json")
+
+
+def test_wfs_layout_report_is_owner_only_under_umask_zero(tmp_path: Path) -> None:
+    report = WFSLayoutProfile(
+        source=Path("/evidence/private.raw"),
+        range_start=0,
+        range_size=4096,
+        fragment_size=2 * 1024 * 1024,
+        sector_size=512,
+        hypotheses=(),
+        notes=("synthetic",),
+    )
+    _assert_private_write(report, tmp_path / "wfs-layout.json")
+
+
+def test_media_qc_report_is_owner_only_under_umask_zero(tmp_path: Path) -> None:
+    media = tmp_path / "private-recovered.mp4"
+    probe = VideoProbe(
+        path=media,
+        duration=10.0,
+        codec="h264",
+        width=1920,
+        height=1080,
+        avg_frame_rate=25.0,
+        r_frame_rate=25.0,
+        stream_count=1,
+        raw={},
+    )
+    report = MediaQCReport(
+        path=media,
+        mode="full-decode",
+        decision=QCDecision(EvidenceStatus.REVIEW, ("synthetic",), {"duration": 10.0}),
+        probe=probe,
+        full_decode_error="private diagnostic context",
+    )
+    path = tmp_path / "qc.json"
+    _assert_private_write(report, path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["path"] == str(media)
+    assert data["full_decode_error"] == "private diagnostic context"
 
 
 def test_private_json_no_replace_mode_preserves_existing_final(tmp_path: Path) -> None:
