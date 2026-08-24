@@ -24,6 +24,23 @@ def _probe(path: Path, duration: float = 3600.0) -> VideoProbe:
     )
 
 
+def _tool_result(
+    *,
+    returncode: int = 0,
+    stdout: bytes = b"",
+    stderr: bytes = b"",
+    stdout_truncated: bool = False,
+    stderr_truncated: bool = False,
+):
+    return SimpleNamespace(
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        stdout_truncated=stdout_truncated,
+        stderr_truncated=stderr_truncated,
+    )
+
+
 def test_three_point_clean_is_review_not_pass(tmp_path: Path, monkeypatch) -> None:
     path = tmp_path / "candidate.mp4"
     path.write_bytes(b"synthetic")
@@ -62,9 +79,9 @@ def test_full_decode_can_pass_only_with_timing_and_no_reconstruction_flags(
     path.write_bytes(b"synthetic")
     monkeypatch.setattr(qc, "probe_video", lambda _path: _probe(path))
     monkeypatch.setattr(
-        qc.subprocess,
-        "run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=0, stderr=""),
+        qc,
+        "run_media_tool_bounded",
+        lambda *args, **kwargs: _tool_result(),
     )
 
     report = qc.full_decode_check(path, expected_duration=3600.0)
@@ -83,9 +100,9 @@ def test_full_decode_without_expected_duration_is_review(tmp_path: Path, monkeyp
     path.write_bytes(b"synthetic")
     monkeypatch.setattr(qc, "probe_video", lambda _path: _probe(path))
     monkeypatch.setattr(
-        qc.subprocess,
-        "run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=0, stderr=""),
+        qc,
+        "run_media_tool_bounded",
+        lambda *args, **kwargs: _tool_result(),
     )
 
     report = qc.full_decode_check(path)
@@ -99,15 +116,21 @@ def test_full_decode_defaults_to_finite_timeout_and_xerror(tmp_path: Path, monke
     monkeypatch.setattr(qc, "probe_video", lambda _path: _probe(path))
     observed: dict[str, object] = {}
 
-    def fake_run(command, **kwargs):
-        observed["command"] = command
+    def fake_run(name, args, **kwargs):
+        observed["name"] = name
+        observed["command"] = args
         observed["timeout"] = kwargs["timeout"]
-        return SimpleNamespace(returncode=0, stderr="")
+        observed["stdout_limit"] = kwargs["stdout_limit"]
+        observed["stderr_limit"] = kwargs["stderr_limit"]
+        return _tool_result()
 
-    monkeypatch.setattr(qc.subprocess, "run", fake_run)
+    monkeypatch.setattr(qc, "run_media_tool_bounded", fake_run)
     report = qc.full_decode_check(path, expected_duration=3600.0)
     assert report.decision.status is EvidenceStatus.PASS
+    assert observed["name"] == "ffmpeg"
     assert observed["timeout"] == qc.DEFAULT_FULL_DECODE_TIMEOUT
+    assert observed["stdout_limit"] == qc.MAX_MEDIA_STDOUT_BYTES
+    assert observed["stderr_limit"] == qc.MAX_FULL_DECODE_DIAGNOSTIC_BYTES
     assert "-xerror" in observed["command"]
     assert "-nostdin" in observed["command"]
     assert report.decision.measurements["full_decode_timeout_seconds"] == qc.DEFAULT_FULL_DECODE_TIMEOUT
@@ -126,14 +149,34 @@ def test_full_decode_diagnostics_are_truncated(tmp_path: Path, monkeypatch) -> N
     path = tmp_path / "candidate.mp4"
     path.write_bytes(b"synthetic")
     monkeypatch.setattr(qc, "probe_video", lambda _path: _probe(path))
-    huge = "E" * (qc.MAX_FULL_DECODE_DIAGNOSTIC_CHARS + 1000)
     monkeypatch.setattr(
-        qc.subprocess,
-        "run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=1, stderr=huge),
+        qc,
+        "run_media_tool_bounded",
+        lambda *args, **kwargs: _tool_result(
+            returncode=1,
+            stderr=b"E" * qc.MAX_FULL_DECODE_DIAGNOSTIC_BYTES,
+            stderr_truncated=True,
+        ),
     )
     report = qc.full_decode_check(path, expected_duration=3600.0)
     assert report.decision.status is EvidenceStatus.FAIL
     assert report.full_decode_error is not None
     assert report.full_decode_error.endswith("[diagnostic output truncated]")
-    assert len(report.full_decode_error) < len(huge)
+    assert len(report.full_decode_error) < qc.MAX_FULL_DECODE_DIAGNOSTIC_BYTES + 100
+
+
+def test_full_decode_unexpected_stdout_is_fail_closed(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "candidate.mp4"
+    path.write_bytes(b"synthetic")
+    monkeypatch.setattr(qc, "probe_video", lambda _path: _probe(path))
+    monkeypatch.setattr(
+        qc,
+        "run_media_tool_bounded",
+        lambda *args, **kwargs: _tool_result(stdout=b"X" * 8, stdout_truncated=True),
+    )
+
+    report = qc.full_decode_check(path, expected_duration=3600.0)
+
+    assert report.decision.status is EvidenceStatus.FAIL
+    assert report.full_decode_error is not None
+    assert "stdout exceeded safety limit" in report.full_decode_error
