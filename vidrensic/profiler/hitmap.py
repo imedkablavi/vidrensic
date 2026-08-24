@@ -39,6 +39,8 @@ class SignatureHitStats:
     _last_counted_offset: int | None = field(default=None, repr=False)
 
     def observe(self, offset: int, *, max_offsets: int) -> None:
+        # Cross-chunk overlap can expose the same hit twice. Scanning is
+        # monotonic, so this single value avoids a memory-heavy global set.
         if self._last_counted_offset is not None and offset <= self._last_counted_offset:
             return
         self._last_counted_offset = offset
@@ -101,18 +103,90 @@ class HitMapReport:
 
 
 def builtin_signatures() -> tuple[SignatureDefinition, ...]:
+    """Return conservative built-in structural/signature leads.
+
+    A hit is never equivalent to format proof. Some values intentionally have
+    `lead` strength because they are common codec/container byte sequences.
+    """
+
     return (
-        SignatureDefinition("wfs_0_4_ascii", b"WFS 0.4", "storage-family", "supporting", "WFS 0.4 ASCII marker"),
-        SignatureDefinition("wfs_0_5_ascii", b"WFS 0.5", "storage-family", "supporting", "WFS 0.5 ASCII marker"),
-        SignatureDefinition("dhav_header", b"DHAV", "record-family", "supporting", "DHAV frame header marker; footer/length validation is still required"),
-        SignatureDefinition("dhav_footer", b"dhav", "record-family", "lead", "DHAV footer marker; case-sensitive lowercase bytes can occur elsewhere"),
-        SignatureDefinition("hikvision_master", b"HIKVISION@HANGZHOU", "storage-family", "strong-structural-marker", "Hikvision Master Sector signature candidate"),
-        SignatureDefinition("hikbtree", b"HIKBTREE", "index-family", "supporting", "Hikvision index-tree marker candidate"),
-        SignatureDefinition("mpegps_pack", b"\x00\x00\x01\xba", "container-family", "lead", "MPEG Program Stream pack start code"),
-        SignatureDefinition("h264_sps_annexb4", b"\x00\x00\x00\x01\x67", "codec", "lead", "H.264 Annex-B SPS-like sequence"),
-        SignatureDefinition("h264_pps_annexb4", b"\x00\x00\x00\x01\x68", "codec", "lead", "H.264 Annex-B PPS-like sequence"),
-        SignatureDefinition("hevc_vps_annexb4", b"\x00\x00\x00\x01\x40", "codec", "lead", "HEVC Annex-B VPS-like NAL header sequence"),
-        SignatureDefinition("hevc_sps_annexb4", b"\x00\x00\x00\x01\x42", "codec", "lead", "HEVC Annex-B SPS-like NAL header sequence"),
+        SignatureDefinition(
+            "wfs_0_4_ascii",
+            b"WFS 0.4",
+            "storage-family",
+            "supporting",
+            "WFS 0.4 ASCII marker",
+        ),
+        SignatureDefinition(
+            "wfs_0_5_ascii",
+            b"WFS 0.5",
+            "storage-family",
+            "supporting",
+            "WFS 0.5 ASCII marker",
+        ),
+        SignatureDefinition(
+            "dhav_header",
+            b"DHAV",
+            "record-family",
+            "supporting",
+            "DHAV frame header marker; footer/length validation is still required",
+        ),
+        SignatureDefinition(
+            "dhav_footer",
+            b"dhav",
+            "record-family",
+            "lead",
+            "DHAV footer marker; case-sensitive lowercase bytes can occur elsewhere",
+        ),
+        SignatureDefinition(
+            "hikvision_master",
+            b"HIKVISION@HANGZHOU",
+            "storage-family",
+            "strong-structural-marker",
+            "Hikvision Master Sector signature candidate",
+        ),
+        SignatureDefinition(
+            "hikbtree",
+            b"HIKBTREE",
+            "index-family",
+            "supporting",
+            "Hikvision index-tree marker candidate",
+        ),
+        SignatureDefinition(
+            "mpegps_pack",
+            b"\x00\x00\x01\xba",
+            "container-family",
+            "lead",
+            "MPEG Program Stream pack start code",
+        ),
+        SignatureDefinition(
+            "h264_sps_annexb4",
+            b"\x00\x00\x00\x01\x67",
+            "codec",
+            "lead",
+            "H.264 Annex-B SPS-like sequence",
+        ),
+        SignatureDefinition(
+            "h264_pps_annexb4",
+            b"\x00\x00\x00\x01\x68",
+            "codec",
+            "lead",
+            "H.264 Annex-B PPS-like sequence",
+        ),
+        SignatureDefinition(
+            "hevc_vps_annexb4",
+            b"\x00\x00\x00\x01\x40",
+            "codec",
+            "lead",
+            "HEVC Annex-B VPS-like NAL header sequence",
+        ),
+        SignatureDefinition(
+            "hevc_sps_annexb4",
+            b"\x00\x00\x00\x01\x42",
+            "codec",
+            "lead",
+            "HEVC Annex-B SPS-like NAL header sequence",
+        ),
     )
 
 
@@ -125,6 +199,13 @@ def scan_signature_hitmap(
     chunk_size: int = 16 * 1024 * 1024,
     max_offsets_per_signature: int = 256,
 ) -> HitMapReport:
+    """Stream a physical source range and count structural signatures.
+
+    Memory use is bounded by the chunk size plus a small retained offset sample.
+    All hits are counted, but only the first `max_offsets_per_signature` physical
+    offsets are retained in the report.
+    """
+
     if range_start < 0:
         raise ValueError("range_start cannot be negative")
     if range_size is not None and range_size <= 0:
@@ -180,7 +261,10 @@ def scan_signature_hitmap(
     finally:
         os.close(fd)
 
-    rows = tuple(stats[item.signature_id].to_dict(scanned_bytes=scanned) for item in definitions)
+    rows = tuple(
+        stats[item.signature_id].to_dict(scanned_bytes=scanned)
+        for item in definitions
+    )
     return HitMapReport(
         source=info.path,
         source_size=info.size_bytes,
