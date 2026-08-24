@@ -42,6 +42,12 @@ jobs:
           assert metadata.version('wheel') == '0.48.0'
           PY
 
+      - name: Enforce release tag and channel policy
+        run: |
+          python scripts/check_release_tag_policy.py \
+            --ref-name "$GITHUB_REF_NAME" \
+            --ref-type "$GITHUB_REF_TYPE"
+
       - name: Source release qualification
         run: |
           ruff check vidrensic tests scripts
@@ -188,7 +194,8 @@ jobs:
               },
               'publication_policy': {
                   'workflow_dispatch': 'qualification artifact only; no release-signature or provenance-attestation claim',
-                  'tag': 'publish job must create GitHub provenance/SBOM attestations, Sigstore-sign and verify the qualified payload before GitHub Release upload',
+                  'tag': 'tag must match the package version; stable tags additionally require at least one admitted real-recorder corpus case before publish can proceed',
+                  'tag_supply_chain': 'publish job must create GitHub provenance/SBOM attestations, Sigstore-sign and verify the qualified payload before GitHub Release upload',
               },
           }
           Path('dist/BUILD-MANIFEST.json').write_text(
