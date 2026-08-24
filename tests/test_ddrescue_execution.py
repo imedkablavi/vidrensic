@@ -36,6 +36,13 @@ def _tool(tmp_path: Path, *, content: bytes = b"synthetic-ddrescue-binary") -> d
     )
 
 
+def _findmnt_tool(tmp_path: Path) -> Path:
+    path = tmp_path / "findmnt"
+    path.write_bytes(b"synthetic findmnt executable")
+    path.chmod(0o755)
+    return path
+
+
 @pytest.mark.parametrize(
     "kwargs,match",
     [
@@ -95,23 +102,60 @@ def test_partial_output_reduces_additional_capacity_requirement(tmp_path: Path) 
     assert plan.additional_required_bytes == 0
 
 
-def test_filesystem_probe_handles_failure_and_normalizes_output(tmp_path: Path, monkeypatch) -> None:
-    calls = []
+def test_filesystem_probe_is_bounded_absolute_and_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = _findmnt_tool(tmp_path)
+    monkeypatch.setattr(dd.shutil, "which", lambda name: str(executable))
+    calls: list[list[str]] = []
 
     def fake_run(cmd, **kwargs):
         calls.append(cmd)
-        return SimpleNamespace(returncode=0, stdout=" EXT4\n")
+        assert kwargs["stdin"] is dd.subprocess.DEVNULL
+        assert kwargs["stdout"] is not dd.subprocess.PIPE
+        assert kwargs["stderr"] is not dd.subprocess.PIPE
+        kwargs["stdout"].write(b" EXT4\n")
+        return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(dd.subprocess, "run", fake_run)
     assert dd._filesystem_type(tmp_path) == "ext4"
-    assert calls[0][:4] == ["findmnt", "-n", "-o", "FSTYPE"]
+    assert calls[0][:5] == [str(executable.resolve()), "-n", "-o", "FSTYPE", "-T"]
 
-    monkeypatch.setattr(
-        dd.subprocess,
-        "run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout=""),
-    )
-    assert dd._filesystem_type(tmp_path) is None
+    def failed_run(cmd, **kwargs):
+        kwargs["stderr"].write(b"synthetic findmnt failure")
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(dd.subprocess, "run", failed_run)
+    with pytest.raises(OSError, match="synthetic findmnt failure"):
+        dd._filesystem_type(tmp_path)
+
+
+def test_filesystem_probe_rejects_oversized_or_ambiguous_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = _findmnt_tool(tmp_path)
+    monkeypatch.setattr(dd.shutil, "which", lambda name: str(executable))
+    monkeypatch.setattr(dd, "MAX_FINDMNT_STDOUT_BYTES", 8)
+
+    def oversized(cmd, **kwargs):
+        kwargs["stdout"].write(b"X" * 9)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(dd.subprocess, "run", oversized)
+    with pytest.raises(OSError, match="stdout exceeded safety limit"):
+        dd._filesystem_type(tmp_path)
+
+    monkeypatch.setattr(dd, "MAX_FINDMNT_STDOUT_BYTES", 64)
+
+    def ambiguous(cmd, **kwargs):
+        kwargs["stdout"].write(b"ext4\nxfs\n")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(dd.subprocess, "run", ambiguous)
+    with pytest.raises(OSError, match="exactly one filesystem type"):
+        dd._filesystem_type(tmp_path)
 
 
 def test_capacity_requires_source_geometry_for_unbounded_plan(tmp_path: Path) -> None:
@@ -119,6 +163,40 @@ def test_capacity_requires_source_geometry_for_unbounded_plan(tmp_path: Path) ->
         check_capacity(_plan(tmp_path), reserve_bytes=0)
     with pytest.raises(ValueError, match="reserve_bytes"):
         check_capacity(_plan(tmp_path, size=1), reserve_bytes=-1)
+
+
+def test_capacity_rejects_large_single_image_on_fat32(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan(tmp_path, size=dd.FAT32_MAX_FILE_BYTES + 1)
+    monkeypatch.setattr(dd, "_filesystem_type", lambda path: "vfat")
+    monkeypatch.setattr(
+        dd.shutil,
+        "disk_usage",
+        lambda path: SimpleNamespace(free=dd.FAT32_MAX_FILE_BYTES * 4),
+    )
+
+    with pytest.raises(OSError, match="cannot safely hold"):
+        check_capacity(
+            plan,
+            source_size=dd.FAT32_MAX_FILE_BYTES + 1,
+            reserve_bytes=0,
+        )
+
+
+def test_capacity_propagates_filesystem_probe_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan(tmp_path, size=1024)
+
+    def failed_probe(path: Path) -> str:
+        raise OSError("filesystem safety probe unavailable")
+
+    monkeypatch.setattr(dd, "_filesystem_type", failed_probe)
+    with pytest.raises(OSError, match="filesystem safety probe unavailable"):
+        check_capacity(plan, source_size=4096, reserve_bytes=0)
 
 
 def test_resolve_ddrescue_records_canonical_path_hash_and_bounded_version(
