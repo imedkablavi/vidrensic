@@ -9,6 +9,7 @@ import tempfile
 
 from vidrensic.acquisition.binding import ensure_source_binding
 from vidrensic.acquisition.linux import require_safe_source
+from vidrensic.core.audit import AuditLog
 from vidrensic.core.hashing import hash_file
 
 
@@ -104,8 +105,6 @@ def _bounded_tool_version(executable: Path) -> str | None:
     value = lines[0].strip()
     if not value:
         return None
-    # A nonzero version command can still produce useful diagnostic/version
-    # text, but do not turn it into proof of a healthy acquisition tool.
     return value if proc.returncode == 0 else f"{value} (version command exit {proc.returncode})"
 
 
@@ -132,6 +131,13 @@ def resolve_ddrescue_executable() -> ExecutableIdentity:
         mtime_ns=stat_result.st_mtime_ns,
         version=_bounded_tool_version(path),
     )
+
+
+def tool_audit_path(mapfile: Path) -> Path:
+    """Return the private hash-chained native-tool provenance log for a map file."""
+
+    resolved = mapfile.expanduser().resolve()
+    return resolved.with_name(resolved.name + ".tool-audit.jsonl")
 
 
 @dataclass(frozen=True)
@@ -201,8 +207,6 @@ class AcquisitionPlan:
 
     @property
     def required_output_bytes(self) -> int | None:
-        # Without source geometry, an unbounded acquisition cannot know its final
-        # output size. Execution always resolves this with validate_source_geometry().
         return self.size
 
     @property
@@ -291,9 +295,11 @@ def execute_plan(
     Legacy map/output state without a sidecar is fail-closed on first encounter.
 
     The ddrescue binary is resolved once to a canonical absolute path, hashed,
-    and checked immediately before and after every pass. This removes repeated
-    PATH lookup and detects ordinary binary replacement during a session. It is
-    not a sandbox, package-signature check, or proof of vendor authenticity.
+    and checked immediately before and after every pass. A separate owner-only,
+    hash-chained tool audit is written beside the map for every execution
+    session, including the observed executable path/version/hash and pass return
+    codes. The hash chain is tamper-evident relative to a known tail, not a
+    digital signature or trusted timestamp.
     """
 
     plan.validate()
@@ -318,17 +324,66 @@ def execute_plan(
         existing_acquisition_state=existing_state,
     )
 
+    audit = AuditLog(tool_audit_path(plan.mapfile))
+    session_details = {
+        "tool": tool.to_dict(),
+        "source": str(plan.source.expanduser().resolve()),
+        "output": str(plan.output.expanduser().resolve()),
+        "mapfile": str(plan.mapfile.expanduser().resolve()),
+        "offset": plan.offset,
+        "size": plan.size,
+        "retry_passes": plan.retry_passes,
+        "direct": plan.direct,
+        "claim_limit": (
+            "Tool audit records the executable observed by Vidrensic and command results. "
+            "It is not a software-vendor signature, trusted timestamp, or proof of chain of custody."
+        ),
+    }
+    audit.append("ddrescue.session.started", session_details)
+
     commands = [plan.first_pass_command(tool.path)]
     retry = plan.retry_command(tool.path)
     if retry is not None:
         commands.append(retry)
 
     results: list[subprocess.CompletedProcess[str]] = []
-    for cmd in commands:
-        tool.require_unchanged()
-        result = subprocess.run(cmd, text=True, check=False, timeout=timeout)
-        tool.require_unchanged()
-        results.append(result)
-        if result.returncode != 0:
-            break
+    try:
+        for pass_index, cmd in enumerate(commands, start=1):
+            tool.require_unchanged()
+            result = subprocess.run(cmd, text=True, check=False, timeout=timeout)
+            tool.require_unchanged()
+            results.append(result)
+            audit.append(
+                "ddrescue.pass.finished",
+                {
+                    "pass_index": pass_index,
+                    "return_code": result.returncode,
+                    "executable_path": str(tool.path),
+                    "executable_sha256": tool.sha256,
+                },
+            )
+            if result.returncode != 0:
+                break
+    except Exception as exc:
+        audit.append(
+            "ddrescue.session.failed",
+            {
+                "completed_return_codes": [item.returncode for item in results],
+                "error_type": type(exc).__name__,
+                "error": str(exc)[:4096],
+                "executable_path": str(tool.path),
+                "executable_sha256": tool.sha256,
+            },
+        )
+        raise
+
+    audit.append(
+        "ddrescue.session.finished",
+        {
+            "return_codes": [item.returncode for item in results],
+            "all_zero": bool(results) and all(item.returncode == 0 for item in results),
+            "executable_path": str(tool.path),
+            "executable_sha256": tool.sha256,
+        },
+    )
     return results
