@@ -123,8 +123,11 @@ def _write_binding(path: Path, binding: AcquisitionSourceBinding, *, replace_exi
 
 
 def load_source_binding(path: Path) -> AcquisitionSourceBinding:
+    candidate = path.expanduser()
+    if candidate.is_symlink():
+        raise ValueError("acquisition source-binding sidecar may not be a symlink")
     data = load_bounded_json(
-        path,
+        candidate,
         max_bytes=MAX_SOURCE_BINDING_BYTES,
         max_depth=MAX_SOURCE_BINDING_DEPTH,
         max_nodes=MAX_SOURCE_BINDING_NODES,
@@ -216,8 +219,8 @@ def ensure_source_binding(
 
 
 def confirm_legacy_binding(path: Path, *, source: Path | None = None) -> AcquisitionSourceBinding:
-    path = path.expanduser().resolve()
-    binding = load_source_binding(path)
+    candidate_path = path.expanduser()
+    binding = load_source_binding(candidate_path)
     if binding.state in CONFIRMED_STATES:
         return binding
     if binding.state != PENDING_LEGACY:
@@ -233,7 +236,7 @@ def confirm_legacy_binding(path: Path, *, source: Path | None = None) -> Acquisi
         state=CONFIRMED_LEGACY,
         confirmed_utc=datetime.now(UTC).isoformat(),
     )
-    _write_binding(path, confirmed, replace_existing=True)
+    _write_binding(candidate_path, confirmed, replace_existing=True)
     return confirmed
 
 
