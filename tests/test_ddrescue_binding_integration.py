@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import stat
 import subprocess
 
 import pytest
@@ -9,6 +10,7 @@ import pytest
 import vidrensic.acquisition.ddrescue as dd
 from vidrensic.acquisition.binding import PENDING_LEGACY, load_source_binding, source_binding_path
 from vidrensic.acquisition.ddrescue import AcquisitionPlan, execute_plan
+from vidrensic.core.audit import AuditLog
 
 
 def _tool(tmp_path: Path) -> dd.ExecutableIdentity:
@@ -38,16 +40,24 @@ def _prepare(monkeypatch, source_size: int, tool: dd.ExecutableIdentity) -> None
     monkeypatch.setattr(dd, "resolve_ddrescue_executable", lambda: tool)
 
 
-def test_new_acquisition_binds_source_before_ddrescue_runs(tmp_path: Path, monkeypatch) -> None:
+def test_new_acquisition_binds_source_and_tool_before_ddrescue_runs(
+    tmp_path: Path, monkeypatch
+) -> None:
     source = tmp_path / "source.bin"
     source.write_bytes(b"A" * 200_000)
     plan = AcquisitionPlan(source, tmp_path / "image.bin", tmp_path / "image.map", size=1000)
-    _prepare(monkeypatch, source.stat().st_size, _tool(tmp_path))
+    tool = _tool(tmp_path)
+    _prepare(monkeypatch, source.stat().st_size, tool)
 
     observed = {"called": False}
 
     def fake_run(command, **kwargs):
         assert source_binding_path(plan.mapfile).is_file()
+        tool_log = dd.tool_audit_path(plan.mapfile)
+        assert tool_log.is_file()
+        assert stat.S_IMODE(tool_log.stat().st_mode) == 0o600
+        ok, _ = AuditLog(tool_log).verify()
+        assert ok
         observed["called"] = True
         return subprocess.CompletedProcess(command, 0)
 
@@ -55,6 +65,15 @@ def test_new_acquisition_binds_source_before_ddrescue_runs(tmp_path: Path, monke
     results = execute_plan(plan, timeout=5)
     assert observed["called"] is True
     assert [item.returncode for item in results] == [0]
+
+    tool_log = dd.tool_audit_path(plan.mapfile)
+    ok, tail = AuditLog(tool_log).verify()
+    assert ok
+    assert len(tail) == 64
+    text = tool_log.read_text(encoding="utf-8")
+    assert tool.sha256 in text
+    assert str(tool.path) in text
+    assert "ddrescue.session.finished" in text
 
 
 def test_legacy_unbound_state_never_invokes_ddrescue_on_first_encounter(
@@ -83,3 +102,6 @@ def test_legacy_unbound_state_never_invokes_ddrescue_on_first_encounter(
     assert called is False
     binding = load_source_binding(source_binding_path(mapfile))
     assert binding.state == PENDING_LEGACY
+    # Tool audit starts only after source binding is accepted, so a blocked
+    # legacy adoption cannot look like an executed ddrescue session.
+    assert not dd.tool_audit_path(mapfile).exists()
