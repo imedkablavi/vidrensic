@@ -58,7 +58,7 @@ def _audit(plan: AcquisitionPlan, return_codes: tuple[int, ...] = (0,)) -> None:
     audit.append("ddrescue.session.started", {"tool": {"sha256": "ab" * 32}})
     audit.append(
         "ddrescue.session.finished",
-        {"return_codes": list(return_codes), "all_zero": all(code == 0 for code in return_codes)},
+        {"return_codes": list(return_codes), "all_zero": bool(return_codes) and all(code == 0 for code in return_codes)},
     )
 
 
@@ -91,7 +91,53 @@ def test_latest_failed_tool_session_keeps_receipt_in_review(tmp_path: Path) -> N
     receipt = build_acquisition_receipt(plan, _source_info(plan.source), [0])
     assert receipt.status == "REVIEW"
     assert receipt.tool_audit_last_event == "ddrescue.session.failed"
-    assert any("latest terminal ddrescue session is not successful" in reason for reason in receipt.reasons)
+    assert any("latest ddrescue tool-audit event is not a completed session" in reason for reason in receipt.reasons)
+
+
+def test_newer_unfinished_session_cannot_reuse_older_finished_session(tmp_path: Path) -> None:
+    plan = _plan(tmp_path)
+    _bind(plan)
+    _audit(plan, (0,))
+    AuditLog(tool_audit_path(plan.mapfile)).append(
+        "ddrescue.session.started",
+        {"tool": {"sha256": "cd" * 32}},
+    )
+
+    receipt = build_acquisition_receipt(plan, _source_info(plan.source), [0])
+    assert receipt.status == "REVIEW"
+    assert receipt.tool_audit_last_event == "ddrescue.session.started"
+    assert any("latest ddrescue tool-audit event is not a completed session" in reason for reason in receipt.reasons)
+
+
+def test_newer_pass_without_terminal_session_cannot_reuse_old_success(tmp_path: Path) -> None:
+    plan = _plan(tmp_path)
+    _bind(plan)
+    _audit(plan, (0,))
+    audit = AuditLog(tool_audit_path(plan.mapfile))
+    audit.append("ddrescue.session.started", {"tool": {"sha256": "ef" * 32}})
+    audit.append(
+        "ddrescue.pass.finished",
+        {"pass_index": 1, "return_code": 0, "executable_sha256": "ef" * 32},
+    )
+
+    receipt = build_acquisition_receipt(plan, _source_info(plan.source), [0])
+    assert receipt.status == "REVIEW"
+    assert receipt.tool_audit_last_event == "ddrescue.pass.finished"
+
+
+def test_finished_audit_must_explicitly_confirm_all_zero(tmp_path: Path) -> None:
+    plan = _plan(tmp_path)
+    _bind(plan)
+    audit = AuditLog(tool_audit_path(plan.mapfile))
+    audit.append("ddrescue.session.started", {"tool": {"sha256": "ab" * 32}})
+    audit.append(
+        "ddrescue.session.finished",
+        {"return_codes": [0], "all_zero": False},
+    )
+
+    receipt = build_acquisition_receipt(plan, _source_info(plan.source), [0])
+    assert receipt.status == "REVIEW"
+    assert any("does not confirm all-zero" in reason for reason in receipt.reasons)
 
 
 def test_tampered_tool_audit_is_rejected(tmp_path: Path) -> None:
