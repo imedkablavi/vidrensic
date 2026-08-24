@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-import json
 import os
 import struct
 import uuid
 import zlib
 
 from vidrensic.acquisition.linux import require_safe_source
+from vidrensic.core.private_io import atomic_write_private_json
 
 
 @dataclass(frozen=True)
@@ -74,12 +74,7 @@ class StorageReport:
         }
 
     def write_json(self, output: Path) -> Path:
-        output = output.expanduser().resolve()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        temp = output.with_suffix(output.suffix + ".tmp")
-        temp.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        temp.replace(output)
-        return output
+        return atomic_write_private_json(output, self.to_dict())
 
 
 def _pread(fd: int, size: int, offset: int) -> bytes:
