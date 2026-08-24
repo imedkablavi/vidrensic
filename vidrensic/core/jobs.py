@@ -13,10 +13,16 @@ import uuid
 
 SCHEMA_VERSION = 1
 PRIVATE_FILE_MODE = 0o600
-MAX_JOB_JSON_CHARS = 1024 * 1024
-MAX_JOB_ERROR_CHARS = 64 * 1024
+MAX_JOB_JSON_BYTES = 1024 * 1024
+MAX_JOB_ERROR_BYTES = 64 * 1024
 MAX_JOB_KIND_CHARS = 256
-MAX_JOB_ID_CHARS = 128
+MAX_NEW_JOB_ID_CHARS = 128
+
+# Backward-compatible names kept for callers/tests written against the first
+# hardening revision. The enforcement itself is byte-based for JSON/error text.
+MAX_JOB_JSON_CHARS = MAX_JOB_JSON_BYTES
+MAX_JOB_ERROR_CHARS = MAX_JOB_ERROR_BYTES
+MAX_JOB_ID_CHARS = MAX_NEW_JOB_ID_CHARS
 
 
 class JobStatus(StrEnum):
@@ -57,17 +63,17 @@ _SAFE_PROJECTION = f"""
     status,
     created_utc,
     updated_utc,
-    CASE WHEN length(parameters_json) <= {MAX_JOB_JSON_CHARS}
+    CASE WHEN length(CAST(parameters_json AS BLOB)) <= {MAX_JOB_JSON_BYTES}
          THEN parameters_json ELSE NULL END AS parameters_json,
-    CASE WHEN length(checkpoint_json) <= {MAX_JOB_JSON_CHARS}
+    CASE WHEN length(CAST(checkpoint_json AS BLOB)) <= {MAX_JOB_JSON_BYTES}
          THEN checkpoint_json ELSE NULL END AS checkpoint_json,
     progress_current,
     progress_total,
-    CASE WHEN error IS NULL OR length(error) <= {MAX_JOB_ERROR_CHARS}
+    CASE WHEN error IS NULL OR length(CAST(error AS BLOB)) <= {MAX_JOB_ERROR_BYTES}
          THEN error ELSE NULL END AS error,
-    length(parameters_json) AS parameters_chars,
-    length(checkpoint_json) AS checkpoint_chars,
-    CASE WHEN error IS NULL THEN 0 ELSE length(error) END AS error_chars
+    length(CAST(parameters_json AS BLOB)) AS parameters_bytes,
+    length(CAST(checkpoint_json AS BLOB)) AS checkpoint_bytes,
+    CASE WHEN error IS NULL THEN 0 ELSE length(CAST(error AS BLOB)) END AS error_bytes
 """
 
 
@@ -79,9 +85,13 @@ class JobStore:
     transitions use `BEGIN IMMEDIATE` and compare the previous status in the
     UPDATE so competing processes cannot both finalize the same stale state.
 
-    Job JSON/error fields are explicitly size-bounded. Reads use SQLite CASE
-    expressions so a tampered oversized JSON/error field is not materialized into
-    Python before the store rejects the row.
+    Job JSON/error fields are explicitly byte-bounded. Reads use NUL-safe SQLite
+    BLOB-length checks so a tampered oversized JSON/error field is not
+    materialized into Python before the store rejects the row.
+
+    New custom job identifiers are bounded, but lookup/update operations retain
+    compatibility with longer identifiers persisted by the schema-v1
+    implementation before that creation limit existed.
     """
 
     def __init__(self, path: Path):
@@ -139,6 +149,10 @@ class JobStore:
         return datetime.now(UTC).isoformat()
 
     @staticmethod
+    def _utf8_size(value: str) -> int:
+        return len(value.encode("utf-8"))
+
+    @staticmethod
     def _json(value: dict[str, Any]) -> str:
         if not isinstance(value, dict):
             raise ValueError("job metadata must be an object")
@@ -151,18 +165,14 @@ class JobStore:
             )
         except (TypeError, ValueError, RecursionError) as exc:
             raise ValueError("job metadata must be JSON-serializable") from exc
-        if len(serialized) > MAX_JOB_JSON_CHARS:
-            raise ValueError(
-                f"job metadata exceeds {MAX_JOB_JSON_CHARS} characters"
-            )
+        if JobStore._utf8_size(serialized) > MAX_JOB_JSON_BYTES:
+            raise ValueError(f"job metadata exceeds {MAX_JOB_JSON_BYTES} bytes")
         return serialized
 
     @staticmethod
-    def _parse_json_object(value: str | None, *, field: str, stored_chars: int) -> dict[str, Any]:
-        if stored_chars > MAX_JOB_JSON_CHARS or value is None:
-            raise ValueError(
-                f"stored job {field} exceeds {MAX_JOB_JSON_CHARS} characters"
-            )
+    def _parse_json_object(value: str | None, *, field: str, stored_bytes: int) -> dict[str, Any]:
+        if stored_bytes > MAX_JOB_JSON_BYTES or value is None:
+            raise ValueError(f"stored job {field} exceeds {MAX_JOB_JSON_BYTES} bytes")
         try:
             parsed = json.loads(value)
         except (json.JSONDecodeError, RecursionError) as exc:
@@ -188,11 +198,15 @@ class JobStore:
             raise ValueError(f"job kind exceeds {MAX_JOB_KIND_CHARS} characters")
 
     @staticmethod
-    def _validate_identifier(identifier: str) -> None:
+    def _validate_lookup_identifier(identifier: str) -> None:
         if not isinstance(identifier, str) or not identifier:
             raise ValueError("job_id must be a non-empty string")
-        if len(identifier) > MAX_JOB_ID_CHARS:
-            raise ValueError(f"job_id exceeds {MAX_JOB_ID_CHARS} characters")
+
+    @staticmethod
+    def _validate_new_identifier(identifier: str) -> None:
+        JobStore._validate_lookup_identifier(identifier)
+        if len(identifier) > MAX_NEW_JOB_ID_CHARS:
+            raise ValueError(f"job_id exceeds {MAX_NEW_JOB_ID_CHARS} characters")
 
     @staticmethod
     def _safe_row(conn: sqlite3.Connection, job_id: str) -> sqlite3.Row | None:
@@ -211,7 +225,7 @@ class JobStore:
     ) -> JobRecord:
         self._validate_kind(kind)
         identifier = job_id or str(uuid.uuid4())
-        self._validate_identifier(identifier)
+        self._validate_new_identifier(identifier)
         parameters_json = self._json(parameters)
         checkpoint_json = self._json(checkpoint or {})
         now = self._now()
@@ -237,7 +251,7 @@ class JobStore:
         return self.get(identifier)
 
     def get(self, job_id: str) -> JobRecord:
-        self._validate_identifier(job_id)
+        self._validate_lookup_identifier(job_id)
         with self._connect() as conn:
             row = self._safe_row(conn, job_id)
         if row is None:
@@ -284,8 +298,8 @@ class JobStore:
     def fail(self, job_id: str, error: str) -> JobRecord:
         if not isinstance(error, str) or not error:
             raise ValueError("error cannot be empty")
-        if len(error) > MAX_JOB_ERROR_CHARS:
-            raise ValueError(f"job error exceeds {MAX_JOB_ERROR_CHARS} characters")
+        if self._utf8_size(error) > MAX_JOB_ERROR_BYTES:
+            raise ValueError(f"job error exceeds {MAX_JOB_ERROR_BYTES} bytes")
         return self._set_status(job_id, JobStatus.FAILED, error=error)
 
     def _set_status(
@@ -295,9 +309,9 @@ class JobStore:
         *,
         error: str | None = None,
     ) -> JobRecord:
-        self._validate_identifier(job_id)
-        if error is not None and len(error) > MAX_JOB_ERROR_CHARS:
-            raise ValueError(f"job error exceeds {MAX_JOB_ERROR_CHARS} characters")
+        self._validate_lookup_identifier(job_id)
+        if error is not None and self._utf8_size(error) > MAX_JOB_ERROR_BYTES:
+            raise ValueError(f"job error exceeds {MAX_JOB_ERROR_BYTES} bytes")
         allowed = {
             JobStatus.PENDING: {JobStatus.RUNNING, JobStatus.CANCELLED, JobStatus.FAILED},
             JobStatus.RUNNING: {
@@ -337,7 +351,7 @@ class JobStore:
         progress_current: int | None = None,
         progress_total: int | None = None,
     ) -> JobRecord:
-        self._validate_identifier(job_id)
+        self._validate_lookup_identifier(job_id)
         checkpoint_json = self._json(value)
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -374,18 +388,16 @@ class JobStore:
         parameters = JobStore._parse_json_object(
             row["parameters_json"],
             field="parameters",
-            stored_chars=int(row["parameters_chars"]),
+            stored_bytes=int(row["parameters_bytes"]),
         )
         checkpoint = JobStore._parse_json_object(
             row["checkpoint_json"],
             field="checkpoint",
-            stored_chars=int(row["checkpoint_chars"]),
+            stored_bytes=int(row["checkpoint_bytes"]),
         )
-        error_chars = int(row["error_chars"])
-        if error_chars > MAX_JOB_ERROR_CHARS:
-            raise ValueError(
-                f"stored job error exceeds {MAX_JOB_ERROR_CHARS} characters"
-            )
+        error_bytes = int(row["error_bytes"])
+        if error_bytes > MAX_JOB_ERROR_BYTES:
+            raise ValueError(f"stored job error exceeds {MAX_JOB_ERROR_BYTES} bytes")
         return JobRecord(
             job_id=row["job_id"],
             kind=row["kind"],
