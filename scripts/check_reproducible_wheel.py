@@ -6,7 +6,6 @@ import importlib.metadata as metadata
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tarfile
@@ -136,13 +135,13 @@ def check_reproducible_wheel(
             reference_wheel = reference_wheel.expanduser().resolve()
             if not reference_wheel.is_file():
                 raise FileNotFoundError(reference_wheel)
+            reference_digest = _digest(reference_wheel)
             reference = {
                 "path": str(reference_wheel),
                 "filename": reference_wheel.name,
-                "sha256": _digest(reference_wheel),
+                "sha256": reference_digest,
                 "matches_rebuild": (
-                    reference_wheel.name == wheel_a.name
-                    and _digest(reference_wheel) == digest_a
+                    reference_wheel.name == wheel_a.name and reference_digest == digest_a
                 ),
             }
             reproducible = reproducible and bool(reference["matches_rebuild"])
