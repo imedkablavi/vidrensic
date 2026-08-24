@@ -4,15 +4,26 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 import os
-import subprocess
 
-from vidrensic.acquisition.ddrescue import AcquisitionPlan
+from vidrensic.acquisition.binding import (
+    CONFIRMED_STATES,
+    load_source_binding,
+    source_binding_path,
+)
+from vidrensic.acquisition.ddrescue import (
+    AcquisitionPlan,
+    resolve_ddrescue_executable,
+    tool_audit_path,
+)
 from vidrensic.acquisition.linux import SourceInfo
 from vidrensic.acquisition.mapfile import MapSummary, parse_mapfile
+from vidrensic.core.audit import AuditLog, MAX_AUDIT_LINE_CHARS
 from vidrensic.core.hashing import forensic_hashes
+from vidrensic.core.provenance import fingerprint_source, require_same_source
 
 
 PRIVATE_RECEIPT_MODE = 0o600
+TOOL_TERMINAL_EVENTS = frozenset({"ddrescue.session.finished", "ddrescue.session.failed"})
 
 
 @dataclass(frozen=True)
@@ -36,10 +47,20 @@ class AcquisitionReceipt:
     output_hash_skipped: bool
     status: str
     reasons: tuple[str, ...]
+    source_binding_path: Path | None = None
+    source_binding_sha256: str | None = None
+    source_binding_state: str | None = None
+    source_binding_identity_strength: str | None = None
+    tool_audit_path: Path | None = None
+    tool_audit_sha256: str | None = None
+    tool_audit_tail_hash: str | None = None
+    tool_audit_valid: bool | None = None
+    tool_audit_last_event: str | None = None
+    tool_audit_return_codes: tuple[int, ...] | None = None
 
     def to_dict(self) -> dict:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "operation": "acquisition.ddrescue",
             "status": self.status,
             "reasons": list(self.reasons),
@@ -67,10 +88,34 @@ class AcquisitionReceipt:
                 "sha512": self.map_sha512,
                 "summary": self.map_summary.to_dict(),
             },
+            "provenance": {
+                "source_binding": {
+                    "path": None if self.source_binding_path is None else str(self.source_binding_path),
+                    "sha256": self.source_binding_sha256,
+                    "state": self.source_binding_state,
+                    "identity_strength": self.source_binding_identity_strength,
+                },
+                "tool_audit": {
+                    "path": None if self.tool_audit_path is None else str(self.tool_audit_path),
+                    "sha256": self.tool_audit_sha256,
+                    "tail_hash": self.tool_audit_tail_hash,
+                    "valid": self.tool_audit_valid,
+                    "last_terminal_event": self.tool_audit_last_event,
+                    "recorded_return_codes": (
+                        None
+                        if self.tool_audit_return_codes is None
+                        else list(self.tool_audit_return_codes)
+                    ),
+                },
+            },
             "ddrescue_version": self.ddrescue_version,
             "return_codes": list(self.return_codes),
             "forensic_notes": [
-                "hashes bind the receipt to derived acquisition/map bytes, not to an independently hashed source disk",
+                "hashes bind the receipt to exact acquisition/map/provenance-sidecar bytes, not to an independently full-hashed source disk",
+                "source identity is rechecked against the persisted source binding before COMPLETE is possible",
+                "the latest terminal ddrescue tool-audit event must be a successful session whose return codes match this receipt",
+                "tool-audit/source-binding hashes are integrity evidence, not digital signatures or trusted timestamps",
+                "ddrescue_version is observed in the verification environment and is not substituted for the execution-session tool audit",
                 "a skipped output hash leaves verification incomplete and forces REVIEW status",
                 "map completion is evaluated against the requested source range",
             ],
@@ -86,9 +131,6 @@ class AcquisitionReceipt:
             raise FileExistsError(f"partial acquisition receipt already exists: {partial}")
         try:
             with partial.open("x", encoding="utf-8") as fh:
-                # Receipt paths, device mount information and hashes are case
-                # metadata. Do not let a permissive process umask make them
-                # group/world-readable when the caller writes outside a Case.
                 os.fchmod(fh.fileno(), PRIVATE_RECEIPT_MODE)
                 json.dump(self.to_dict(), fh, indent=2, sort_keys=True)
                 fh.write("\n")
@@ -104,18 +146,159 @@ class AcquisitionReceipt:
 
 
 def ddrescue_version() -> str | None:
+    """Observe ddrescue version in the current verification environment."""
+
     try:
-        proc = subprocess.run(
-            ["ddrescue", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+        return resolve_ddrescue_executable().version
+    except (OSError, ValueError):
         return None
-    first = (proc.stdout or proc.stderr).splitlines()
-    return first[0].strip() if first else None
+
+
+def _binding_provenance(
+    plan: AcquisitionPlan,
+    source_info: SourceInfo,
+) -> tuple[dict[str, object], list[str]]:
+    path = source_binding_path(plan.mapfile)
+    result: dict[str, object] = {
+        "path": path,
+        "sha256": None,
+        "state": None,
+        "identity_strength": None,
+    }
+    reasons: list[str] = []
+    if not path.exists():
+        reasons.append("acquisition source-binding sidecar is missing")
+        return result, reasons
+    if path.is_symlink():
+        reasons.append("acquisition source-binding sidecar may not be a symlink")
+        return result, reasons
+
+    before_hash = forensic_hashes(path, include_sha512=False).sha256
+    try:
+        binding = load_source_binding(path)
+    except (OSError, ValueError) as exc:
+        result["sha256"] = before_hash
+        reasons.append(f"acquisition source-binding sidecar is invalid: {type(exc).__name__}: {exc}")
+        return result, reasons
+
+    result["state"] = binding.state
+    result["identity_strength"] = binding.source.identity_strength
+
+    if binding.state not in CONFIRMED_STATES:
+        reasons.append(f"acquisition source binding is not confirmed: {binding.state}")
+    if binding.output != plan.output.expanduser().resolve():
+        reasons.append("source-binding output path does not match the receipt plan")
+    if binding.mapfile != plan.mapfile.expanduser().resolve():
+        reasons.append("source-binding map path does not match the receipt plan")
+    if binding.offset != plan.offset or binding.requested_size != plan.size:
+        reasons.append("source-binding acquisition geometry does not match the receipt plan")
+
+    try:
+        sample_bytes = binding.source.edge_sample_bytes if not binding.source.is_block_device else 0
+        current = fingerprint_source(source_info.path, edge_sample_bytes=sample_bytes)
+        require_same_source(binding.source, current)
+    except (OSError, RuntimeError, ValueError) as exc:
+        reasons.append(f"current source does not match source-binding identity: {exc}")
+
+    after_hash = forensic_hashes(path, include_sha512=False).sha256
+    result["sha256"] = after_hash
+    if before_hash != after_hash:
+        reasons.append("source-binding sidecar changed during receipt verification")
+    return result, reasons
+
+
+def _last_tool_terminal_record(path: Path) -> dict | None:
+    last: dict | None = None
+    with path.open("r", encoding="utf-8") as handle:
+        while True:
+            line = handle.readline(MAX_AUDIT_LINE_CHARS + 1)
+            if not line:
+                break
+            if len(line) > MAX_AUDIT_LINE_CHARS:
+                raise ValueError("tool-audit line exceeds configured safety limit")
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            if isinstance(record, dict) and record.get("event") in TOOL_TERMINAL_EVENTS:
+                last = record
+    return last
+
+
+def _tool_audit_provenance(
+    plan: AcquisitionPlan,
+    return_codes: tuple[int, ...],
+) -> tuple[dict[str, object], list[str]]:
+    path = tool_audit_path(plan.mapfile)
+    result: dict[str, object] = {
+        "path": path,
+        "sha256": None,
+        "tail_hash": None,
+        "valid": None,
+        "last_event": None,
+        "return_codes": None,
+    }
+    reasons: list[str] = []
+    if not path.exists():
+        reasons.append("ddrescue tool-audit sidecar is missing")
+        return result, reasons
+    if path.is_symlink():
+        reasons.append("ddrescue tool-audit sidecar may not be a symlink")
+        return result, reasons
+
+    audit = AuditLog(path)
+    ok, tail_or_reason = audit.verify()
+    if not ok:
+        result["valid"] = False
+        reasons.append(f"ddrescue tool-audit hash chain is invalid: {tail_or_reason}")
+        return result, reasons
+
+    try:
+        terminal = _last_tool_terminal_record(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        result["valid"] = False
+        reasons.append(f"ddrescue tool-audit terminal record is unreadable: {type(exc).__name__}: {exc}")
+        return result, reasons
+
+    audit_hash = forensic_hashes(path, include_sha512=False).sha256
+    ok_after, after_reason = audit.verify(expected_tail_hash=tail_or_reason)
+    if not ok_after:
+        result["valid"] = False
+        result["sha256"] = audit_hash
+        reasons.append(f"ddrescue tool-audit changed during receipt verification: {after_reason}")
+        return result, reasons
+
+    result["sha256"] = audit_hash
+    result["tail_hash"] = tail_or_reason
+    result["valid"] = True
+    if terminal is None:
+        reasons.append("ddrescue tool-audit has no terminal execution-session event")
+        return result, reasons
+
+    event = terminal.get("event")
+    result["last_event"] = event
+    details = terminal.get("details")
+    if not isinstance(details, dict):
+        reasons.append("ddrescue tool-audit terminal event has invalid details")
+        return result, reasons
+    recorded = details.get("return_codes")
+    if isinstance(recorded, list) and all(isinstance(code, int) for code in recorded):
+        recorded_codes = tuple(recorded)
+        result["return_codes"] = recorded_codes
+    else:
+        recorded_codes = None
+
+    if event != "ddrescue.session.finished":
+        reasons.append(f"latest terminal ddrescue session is not successful: {event}")
+        return result, reasons
+    if recorded_codes is None:
+        reasons.append("ddrescue tool-audit finished event has invalid return_codes")
+        return result, reasons
+    if recorded_codes != return_codes:
+        reasons.append(
+            "receipt return codes do not match the latest ddrescue tool-audit session: "
+            f"receipt={list(return_codes)} audit={list(recorded_codes)}"
+        )
+    return result, reasons
 
 
 def build_acquisition_receipt(
@@ -131,6 +314,7 @@ def build_acquisition_receipt(
     if not plan.mapfile.is_file():
         raise FileNotFoundError(f"ddrescue mapfile does not exist: {plan.mapfile}")
 
+    normalized_return_codes = tuple(return_codes)
     map_summary = parse_mapfile(
         plan.mapfile,
         expected_start=plan.offset,
@@ -140,9 +324,12 @@ def build_acquisition_receipt(
     output_hashes = forensic_hashes(plan.output) if hash_output else None
     output_size = plan.output.stat().st_size
 
-    reasons: list[str] = []
-    if not return_codes or any(code != 0 for code in return_codes):
-        reasons.append(f"ddrescue return codes are not all zero: {list(return_codes)}")
+    binding, binding_reasons = _binding_provenance(plan, source_info)
+    tool_audit, tool_reasons = _tool_audit_provenance(plan, normalized_return_codes)
+
+    reasons: list[str] = [*binding_reasons, *tool_reasons]
+    if not normalized_return_codes or any(code != 0 for code in normalized_return_codes):
+        reasons.append(f"ddrescue return codes are not all zero: {list(normalized_return_codes)}")
     if map_summary.complete_for_expected_range is not True:
         reasons.append("ddrescue map does not show the full requested range as finished")
     if output_size < requested_size:
@@ -164,7 +351,7 @@ def build_acquisition_receipt(
         output_size=output_size,
         mapfile=plan.mapfile.expanduser().resolve(),
         ddrescue_version=ddrescue_version(),
-        return_codes=tuple(return_codes),
+        return_codes=normalized_return_codes,
         map_summary=map_summary,
         output_sha256=output_hashes.sha256 if output_hashes else None,
         output_sha512=output_hashes.sha512 if output_hashes else None,
@@ -173,4 +360,32 @@ def build_acquisition_receipt(
         output_hash_skipped=not hash_output,
         status=status,
         reasons=tuple(reasons),
+        source_binding_path=binding["path"] if isinstance(binding["path"], Path) else None,
+        source_binding_sha256=(
+            binding["sha256"] if isinstance(binding["sha256"], str) else None
+        ),
+        source_binding_state=binding["state"] if isinstance(binding["state"], str) else None,
+        source_binding_identity_strength=(
+            binding["identity_strength"]
+            if isinstance(binding["identity_strength"], str)
+            else None
+        ),
+        tool_audit_path=(tool_audit["path"] if isinstance(tool_audit["path"], Path) else None),
+        tool_audit_sha256=(
+            tool_audit["sha256"] if isinstance(tool_audit["sha256"], str) else None
+        ),
+        tool_audit_tail_hash=(
+            tool_audit["tail_hash"] if isinstance(tool_audit["tail_hash"], str) else None
+        ),
+        tool_audit_valid=(
+            tool_audit["valid"] if isinstance(tool_audit["valid"], bool) else None
+        ),
+        tool_audit_last_event=(
+            tool_audit["last_event"] if isinstance(tool_audit["last_event"], str) else None
+        ),
+        tool_audit_return_codes=(
+            tool_audit["return_codes"]
+            if isinstance(tool_audit["return_codes"], tuple)
+            else None
+        ),
     )
