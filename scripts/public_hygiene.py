@@ -38,6 +38,13 @@ EVIDENCE_SUFFIXES = {
     ".264",
     ".265",
 }
+# These are text/JSON metadata derived from acquisition state rather than media
+# bytes, so a simple Path.suffix check would miss them. They can contain source
+# paths, device identifiers, acquisition geometry and native-tool identity.
+SENSITIVE_DERIVED_SUFFIXES = (
+    ".map.source.json",
+    ".map.tool-audit.jsonl",
+)
 PUBLIC_EVIDENCE_ALLOWLIST: frozenset[str] = frozenset()
 SENSITIVE_ROOT_PREFIXES = ("cases/", "case/", "evidence/", "acquisitions/")
 
@@ -67,12 +74,17 @@ def tracked_files() -> list[Path]:
 
 def path_policy_findings(path: Path) -> list[str]:
     text = path.as_posix()
+    lower_text = text.lower()
     findings: list[str] = []
     if text.startswith(SENSITIVE_ROOT_PREFIXES):
         findings.append(f"{path}: tracked path is inside a case/evidence root")
     if path.suffix.lower() in EVIDENCE_SUFFIXES and text not in PUBLIC_EVIDENCE_ALLOWLIST:
         findings.append(
             f"{path}: tracked forensic/media evidence suffix {path.suffix!r} is not explicitly allowlisted"
+        )
+    if lower_text.endswith(SENSITIVE_DERIVED_SUFFIXES) and text not in PUBLIC_EVIDENCE_ALLOWLIST:
+        findings.append(
+            f"{path}: tracked acquisition provenance sidecar is not explicitly allowlisted"
         )
     return findings
 
