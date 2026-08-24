@@ -77,7 +77,12 @@ def test_device_ids_reject_malformed_or_oversized_output(
         linux._device_ids(tmp_path / "device", 8, 0)
 
     monkeypatch.setattr(linux, "MAX_LSBLK_IDS_STDOUT_BYTES", 8)
+    # Exactly eight bytes is allowed.
     monkeypatch.setattr(linux.subprocess, "run", _fake_process(b"8:0\n8:1\n"))
+    assert linux._device_ids(tmp_path / "device", 8, 0) == {"8:0", "8:1"}
+
+    # Nine bytes crosses the configured byte budget before parsing.
+    monkeypatch.setattr(linux.subprocess, "run", _fake_process(b"8:0\n8:1\nX"))
     with pytest.raises(OSError, match="lsblk stdout exceeded safety limit"):
         linux._device_ids(tmp_path / "device", 8, 0)
 
