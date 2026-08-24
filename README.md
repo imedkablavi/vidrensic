@@ -63,18 +63,26 @@ Validation + provenance
 
 ## 60-second start
 
+Clone the repository **once** and enter its root **once**. Do not use `sudo` for a user-local checkout.
+
 ```bash
 git clone https://github.com/imedkablavi/vidrensic.git
 cd vidrensic
-python3 -m venv .venv
+bash scripts/setup_dev.sh
 source .venv/bin/activate
-python -m pip install -U pip
-python -m pip install -e '.[dev]'
 
 vidrensic --version
 vidrensic doctor
 vidrensic formats list
 ```
+
+For setup plus the synthetic demo in one command after `cd vidrensic`:
+
+```bash
+bash scripts/setup_dev.sh --demo
+```
+
+The setup is idempotent and always resolves the real repository root. Python 3.11-3.13 are CI-qualified. Newer Python versions may satisfy package metadata, but the setup prints an explicit warning until that interpreter is covered by CI.
 
 ### Try it without real evidence
 
