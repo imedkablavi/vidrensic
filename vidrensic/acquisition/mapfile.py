@@ -12,6 +12,10 @@ STATUS_NAMES = {
     "+": "finished",
 }
 
+MAX_MAPFILE_BYTES = 128 * 1024 * 1024
+MAX_MAPFILE_LINE_BYTES = 16 * 1024
+MAX_MAP_BLOCKS = 500_000
+
 
 @dataclass(frozen=True)
 class MapBlock:
@@ -78,13 +82,41 @@ def _number(value: str) -> int:
     return int(value, 0)
 
 
+def _bounded_map_lines(path: Path):
+    total_bytes = 0
+    line_no = 0
+    with path.open("rb") as handle:
+        while True:
+            raw = handle.readline(MAX_MAPFILE_LINE_BYTES + 1)
+            if not raw:
+                return
+            line_no += 1
+            total_bytes += len(raw)
+            if total_bytes > MAX_MAPFILE_BYTES:
+                raise ValueError(
+                    f"ddrescue mapfile exceeds safety limit of {MAX_MAPFILE_BYTES} bytes"
+                )
+            if len(raw) > MAX_MAPFILE_LINE_BYTES:
+                raise ValueError(
+                    f"ddrescue mapfile line {line_no} exceeds safety limit of "
+                    f"{MAX_MAPFILE_LINE_BYTES} bytes"
+                )
+            yield line_no, raw.decode("utf-8", errors="replace")
+
+
 def parse_mapfile(
     path: Path,
     *,
     expected_start: int | None = None,
     expected_size: int | None = None,
 ) -> MapSummary:
-    """Parse GNU ddrescue status-block lines without trusting comments/header text."""
+    """Parse bounded GNU ddrescue status-block lines.
+
+    Comments/header text are not trusted. Input is streamed instead of loaded as
+    one string, and both logical line size and retained status-block count are
+    capped so corrupt/local-adversarial map state cannot make verification grow
+    memory without an explicit bound.
+    """
 
     path = path.expanduser().resolve()
     if expected_start is not None and expected_start < 0:
@@ -93,7 +125,7 @@ def parse_mapfile(
         raise ValueError("expected_size must be positive")
 
     blocks: list[MapBlock] = []
-    for line_no, raw_line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+    for line_no, raw_line in _bounded_map_lines(path):
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -109,6 +141,10 @@ def parse_mapfile(
             raise ValueError(f"invalid ddrescue map numeric field at line {line_no}") from exc
         if position < 0 or size <= 0:
             raise ValueError(f"invalid ddrescue map block geometry at line {line_no}")
+        if len(blocks) >= MAX_MAP_BLOCKS:
+            raise ValueError(
+                f"ddrescue mapfile exceeds safety limit of {MAX_MAP_BLOCKS} status blocks"
+            )
         blocks.append(MapBlock(position, size, fields[2]))
 
     if not blocks:
