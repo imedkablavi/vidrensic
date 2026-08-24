@@ -19,6 +19,23 @@ def _plan(tmp_path: Path, **kwargs) -> AcquisitionPlan:
     )
 
 
+def _tool(tmp_path: Path, *, content: bytes = b"synthetic-ddrescue-binary") -> dd.ExecutableIdentity:
+    path = tmp_path / "ddrescue-synthetic"
+    path.write_bytes(content)
+    path.chmod(0o755)
+    stat_result = path.stat()
+    return dd.ExecutableIdentity(
+        name="ddrescue",
+        path=path.resolve(),
+        sha256=dd.hash_file(path, ("sha256",))["sha256"],
+        size_bytes=stat_result.st_size,
+        filesystem_device=stat_result.st_dev,
+        inode=stat_result.st_ino,
+        mtime_ns=stat_result.st_mtime_ns,
+        version="GNU ddrescue synthetic",
+    )
+
+
 @pytest.mark.parametrize(
     "kwargs,match",
     [
@@ -57,6 +74,9 @@ def test_plan_commands_preserve_bounded_offsets_and_retry_semantics(tmp_path: Pa
     assert "-r2" in retry
     assert "-d" in retry
     assert retry[-3:] == [str(plan.source), str(plan.output), str(plan.mapfile)]
+
+    pinned = plan.first_pass_command("/opt/forensic/ddrescue")
+    assert pinned[0] == "/opt/forensic/ddrescue"
 
     no_retry = _plan(tmp_path)
     assert no_retry.retry_command() is None
@@ -101,10 +121,34 @@ def test_capacity_requires_source_geometry_for_unbounded_plan(tmp_path: Path) ->
         check_capacity(_plan(tmp_path, size=1), reserve_bytes=-1)
 
 
-def test_execute_plan_runs_first_pass_then_retry_and_stops_on_failure(tmp_path: Path, monkeypatch) -> None:
+def test_resolve_ddrescue_records_canonical_path_hash_and_bounded_version(
+    tmp_path: Path, monkeypatch
+) -> None:
+    executable = tmp_path / "ddrescue"
+    executable.write_bytes(b"synthetic executable")
+    executable.chmod(0o755)
+    monkeypatch.setattr(dd.shutil, "which", lambda name: str(executable))
+
+    def fake_run(command, **kwargs):
+        assert command == [str(executable.resolve()), "--version"]
+        kwargs["stdout"].write(b"GNU ddrescue 1.29\nextra ignored\n")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(dd.subprocess, "run", fake_run)
+    identity = dd.resolve_ddrescue_executable()
+    assert identity.path == executable.resolve()
+    assert identity.sha256 == dd.hash_file(executable, ("sha256",))["sha256"]
+    assert identity.version == "GNU ddrescue 1.29"
+    assert identity.to_dict()["claim_limit"]
+
+
+def test_execute_plan_uses_one_resolved_absolute_binary_for_all_passes(
+    tmp_path: Path, monkeypatch
+) -> None:
     source = tmp_path / "source.raw"
     source.write_bytes(b"X" * 10_000)
     plan = _plan(tmp_path, source=source, size=1000, retry_passes=2)
+    identity = _tool(tmp_path)
 
     monkeypatch.setattr(
         dd,
@@ -112,7 +156,7 @@ def test_execute_plan_runs_first_pass_then_retry_and_stops_on_failure(tmp_path: 
         lambda path, allow_write_enabled=False: SimpleNamespace(size_bytes=10_000),
     )
     monkeypatch.setattr(dd, "check_capacity", lambda plan, source_size: None)
-    monkeypatch.setattr(dd.shutil, "which", lambda name: "/usr/bin/ddrescue")
+    monkeypatch.setattr(dd, "resolve_ddrescue_executable", lambda: identity)
 
     commands = []
 
@@ -124,6 +168,7 @@ def test_execute_plan_runs_first_pass_then_retry_and_stops_on_failure(tmp_path: 
     results = execute_plan(plan, timeout=5)
     assert [item.returncode for item in results] == [0, 0]
     assert len(commands) == 2
+    assert all(command[0] == str(identity.path) for command in commands)
     assert "-n" in commands[0]
     assert "-r2" in commands[1]
 
@@ -134,9 +179,35 @@ def test_execute_plan_runs_first_pass_then_retry_and_stops_on_failure(tmp_path: 
         return subprocess.CompletedProcess(cmd, 7)
 
     monkeypatch.setattr(dd.subprocess, "run", fail_first)
-    failed = execute_plan(plan)
+    failed = execute_plan(plan, executable_identity=identity)
     assert [item.returncode for item in failed] == [7]
     assert len(commands) == 1
+    assert commands[0][0] == str(identity.path)
+
+
+def test_execute_plan_fails_if_resolved_binary_changes_during_session(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source = tmp_path / "source.raw"
+    source.write_bytes(b"X" * 10_000)
+    plan = _plan(tmp_path, source=source, size=1000)
+    identity = _tool(tmp_path)
+
+    monkeypatch.setattr(
+        dd,
+        "require_safe_source",
+        lambda path, allow_write_enabled=False: SimpleNamespace(size_bytes=10_000),
+    )
+    monkeypatch.setattr(dd, "check_capacity", lambda plan, source_size: None)
+
+    def replace_binary(cmd, **kwargs):
+        identity.path.write_bytes(b"replacement executable bytes")
+        identity.path.chmod(0o755)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(dd.subprocess, "run", replace_binary)
+    with pytest.raises(RuntimeError, match="executable identity changed|executable bytes changed"):
+        execute_plan(plan, executable_identity=identity)
 
 
 def test_execute_plan_requires_ddrescue_binary(tmp_path: Path, monkeypatch) -> None:
@@ -149,7 +220,11 @@ def test_execute_plan_requires_ddrescue_binary(tmp_path: Path, monkeypatch) -> N
         lambda path, allow_write_enabled=False: SimpleNamespace(size_bytes=4096),
     )
     monkeypatch.setattr(dd, "check_capacity", lambda plan, source_size: None)
-    monkeypatch.setattr(dd.shutil, "which", lambda name: None)
+
+    def missing():
+        raise FileNotFoundError("GNU ddrescue executable was not found in PATH")
+
+    monkeypatch.setattr(dd, "resolve_ddrescue_executable", missing)
     with pytest.raises(FileNotFoundError, match="ddrescue"):
         execute_plan(plan)
 

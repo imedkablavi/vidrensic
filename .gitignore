@@ -19,6 +19,8 @@ htmlcov/
 *.AFF4
 *.aff4
 *.map
+*.map.source.json
+*.map.tool-audit.jsonl
 *.dav
 *.DAV
 *.dhav
