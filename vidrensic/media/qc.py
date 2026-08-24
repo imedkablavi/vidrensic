@@ -7,11 +7,18 @@ import subprocess
 
 from vidrensic.core.models import EvidenceStatus, QCDecision
 from vidrensic.core.private_io import atomic_write_private_json
-from vidrensic.media.probe import VideoProbe, decode_window, probe_video
+from vidrensic.media.probe import (
+    MAX_MEDIA_STDOUT_BYTES,
+    VideoProbe,
+    decode_window,
+    probe_video,
+    run_media_tool_bounded,
+)
 
 
 DEFAULT_FULL_DECODE_TIMEOUT = 3600.0
-MAX_FULL_DECODE_DIAGNOSTIC_CHARS = 64 * 1024
+MAX_FULL_DECODE_DIAGNOSTIC_BYTES = 64 * 1024
+MAX_FULL_DECODE_DIAGNOSTIC_CHARS = MAX_FULL_DECODE_DIAGNOSTIC_BYTES
 
 
 @dataclass(frozen=True)
@@ -96,6 +103,16 @@ def _bounded_decode_error(value: str) -> str:
         value[:MAX_FULL_DECODE_DIAGNOSTIC_CHARS].rstrip()
         + "\n[diagnostic output truncated]"
     )
+
+
+def _decode_error_from_result(stderr: bytes, *, truncated: bool) -> str:
+    value = _bounded_decode_error(stderr.decode("utf-8", errors="replace"))
+    if not truncated:
+        return value
+    marker = "[diagnostic output truncated]"
+    if value.endswith(marker):
+        return value
+    return f"{value}\n{marker}" if value else marker
 
 
 def fast_three_point_check(
@@ -211,9 +228,9 @@ def full_decode_check(
         )
 
     try:
-        proc = subprocess.run(
+        result = run_media_tool_bounded(
+            "ffmpeg",
             [
-                "ffmpeg",
                 "-nostdin",
                 "-hide_banner",
                 "-v",
@@ -227,14 +244,22 @@ def full_decode_check(
                 "null",
                 "-",
             ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
             timeout=effective_timeout,
-            check=False,
+            stdout_limit=MAX_MEDIA_STDOUT_BYTES,
+            stderr_limit=MAX_FULL_DECODE_DIAGNOSTIC_BYTES,
         )
-        decode_error = _bounded_decode_error(proc.stderr)
-        decode_failed = proc.returncode != 0 or bool(decode_error)
+        decode_error = _decode_error_from_result(
+            result.stderr,
+            truncated=result.stderr_truncated,
+        )
+        if result.stdout_truncated:
+            extra = f"ffmpeg stdout exceeded safety limit ({MAX_MEDIA_STDOUT_BYTES} bytes)"
+            decode_error = f"{decode_error}\n{extra}" if decode_error else extra
+        decode_failed = (
+            result.returncode != 0
+            or bool(decode_error)
+            or result.stdout_truncated
+        )
     except subprocess.TimeoutExpired as exc:
         decode_error = f"full decode timed out after {exc.timeout} seconds"
         decode_failed = True
