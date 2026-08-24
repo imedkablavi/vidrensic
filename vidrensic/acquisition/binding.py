@@ -6,14 +6,18 @@ from pathlib import Path
 from typing import Any
 import argparse
 import json
-import os
 
+from vidrensic.core.json_limits import load_bounded_json
+from vidrensic.core.private_io import atomic_write_private_json
 from vidrensic.core.provenance import SourceFingerprint, fingerprint_source, require_same_source
 
 
 BINDING_SCHEMA_VERSION = 1
 REGULAR_FILE_EDGE_SAMPLE_BYTES = 64 * 1024
-PRIVATE_FILE_MODE = 0o600
+MAX_SOURCE_BINDING_BYTES = 2 * 1024 * 1024
+MAX_SOURCE_BINDING_DEPTH = 24
+MAX_SOURCE_BINDING_NODES = 20_000
+MAX_SOURCE_BINDING_STRING_CHARS = 128 * 1024
 PENDING_LEGACY = "pending-legacy-adoption"
 CONFIRMED_NEW = "confirmed-new"
 CONFIRMED_LEGACY = "confirmed-legacy-adoption"
@@ -81,10 +85,15 @@ class AcquisitionSourceBinding:
             raise ValueError("source-binding created_utc is required")
         if confirmed is not None and not isinstance(confirmed, str):
             raise ValueError("source-binding confirmed_utc must be a string or null")
+        try:
+            output = Path(str(plan["output"])).expanduser().resolve()
+            mapfile = Path(str(plan["mapfile"])).expanduser().resolve()
+        except KeyError as exc:
+            raise ValueError(f"source-binding plan is missing {exc.args[0]}") from exc
         return cls(
             source=SourceFingerprint.from_dict(value.get("source")),
-            output=Path(str(plan["output"])).expanduser().resolve(),
-            mapfile=Path(str(plan["mapfile"])).expanduser().resolve(),
+            output=output,
+            mapfile=mapfile,
             offset=offset,
             requested_size=requested_size,
             state=state,
@@ -106,34 +115,25 @@ def _fingerprint_for_binding(source: Path) -> SourceFingerprint:
 
 
 def _write_binding(path: Path, binding: AcquisitionSourceBinding, *, replace_existing: bool) -> Path:
-    path = path.expanduser().resolve()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists() and not replace_existing:
-        raise FileExistsError(f"source binding already exists: {path}")
-    temp = path.with_name(path.name + ".tmp")
-    if temp.exists():
-        raise FileExistsError(f"partial source binding already exists: {temp}")
-    payload = json.dumps(binding.to_dict(), indent=2, sort_keys=True) + "\n"
-    try:
-        with temp.open("x", encoding="utf-8") as fh:
-            os.chmod(temp, PRIVATE_FILE_MODE)
-            fh.write(payload)
-            fh.flush()
-            os.fsync(fh.fileno())
-        if not replace_existing and path.exists():
-            raise FileExistsError(f"source binding appeared concurrently: {path}")
-        temp.replace(path)
-        os.chmod(path, PRIVATE_FILE_MODE)
-    except Exception:
-        if temp.exists():
-            temp.unlink()
-        raise
-    return path
+    return atomic_write_private_json(
+        path,
+        binding.to_dict(),
+        allow_replace=replace_existing,
+    )
 
 
 def load_source_binding(path: Path) -> AcquisitionSourceBinding:
-    path = path.expanduser().resolve()
-    data = json.loads(path.read_text(encoding="utf-8"))
+    candidate = path.expanduser()
+    if candidate.is_symlink():
+        raise ValueError("acquisition source-binding sidecar may not be a symlink")
+    data = load_bounded_json(
+        candidate,
+        max_bytes=MAX_SOURCE_BINDING_BYTES,
+        max_depth=MAX_SOURCE_BINDING_DEPTH,
+        max_nodes=MAX_SOURCE_BINDING_NODES,
+        max_string_chars=MAX_SOURCE_BINDING_STRING_CHARS,
+        label="acquisition source-binding sidecar",
+    )
     return AcquisitionSourceBinding.from_dict(data)
 
 
@@ -219,8 +219,8 @@ def ensure_source_binding(
 
 
 def confirm_legacy_binding(path: Path, *, source: Path | None = None) -> AcquisitionSourceBinding:
-    path = path.expanduser().resolve()
-    binding = load_source_binding(path)
+    candidate_path = path.expanduser()
+    binding = load_source_binding(candidate_path)
     if binding.state in CONFIRMED_STATES:
         return binding
     if binding.state != PENDING_LEGACY:
@@ -236,7 +236,7 @@ def confirm_legacy_binding(path: Path, *, source: Path | None = None) -> Acquisi
         state=CONFIRMED_LEGACY,
         confirmed_utc=datetime.now(UTC).isoformat(),
     )
-    _write_binding(path, confirmed, replace_existing=True)
+    _write_binding(candidate_path, confirmed, replace_existing=True)
     return confirmed
 
 
