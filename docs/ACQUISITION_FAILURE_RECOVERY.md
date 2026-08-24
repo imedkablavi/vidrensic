@@ -25,9 +25,11 @@ Both acquisition provenance sidecars are ignored by Git by default, and the publ
 3. the acquisition output is at least the requested logical size;
 4. output hashing was not skipped;
 5. `<mapfile>.source.json` exists as a non-symlink, bounded/valid sidecar, is in a confirmed state, matches the output/map paths and requested acquisition geometry, and its persisted source fingerprint matches the source observed during verification;
-6. `<mapfile>.tool-audit.jsonl` exists as a non-symlink, its hash chain verifies, and its latest terminal execution event is `ddrescue.session.finished`;
-7. the return-code list recorded by that latest finished tool-audit session exactly matches the return-code list supplied to receipt verification; and
+6. `<mapfile>.tool-audit.jsonl` exists as a non-symlink, stays within the verification size bound, its hash chain verifies, and its final nonblank record is `ddrescue.session.finished`;
+7. the final finished tool-audit record explicitly reports `all_zero=true` and its return-code list exactly matches the return-code list supplied to receipt verification; and
 8. neither provenance sidecar changes while the receipt verification is reading/hashing it.
+
+Requiring the final audit record matters: an older successful session cannot be reused to obtain `COMPLETE` if a newer `ddrescue.session.started` or `ddrescue.pass.finished` record exists without a terminal session record. An interrupted or still-running newer session therefore remains `REVIEW`.
 
 The receipt stores hashes and selected state for both provenance sidecars so the JSON receipt is bound to their exact bytes at verification time. Missing legacy sidecars, malformed provenance, a changed source, a failed/latest incomplete execution session, or return-code disagreement keeps the receipt in `REVIEW`; Vidrensic does not invent replacement provenance to manufacture `COMPLETE`.
 
@@ -92,6 +94,10 @@ If neither WWN nor serial is exposed, the binding records `device-node-fallback`
 ### Missing or invalid provenance sidecar during receipt verification
 
 **Action:** receipt status remains `REVIEW`. Preserve the existing files and investigate the missing/tampered state. Do not recreate a source binding or tool audit after the fact solely to obtain `COMPLETE`.
+
+### Newer incomplete ddrescue session
+
+**Action:** receipt status remains `REVIEW`. If the final tool-audit record is a new session start or pass record without a matching terminal session record, investigate whether acquisition was interrupted or is still in progress. Do not reuse an older successful session as the current provenance result.
 
 ### ddrescue executable identity change during a session
 
