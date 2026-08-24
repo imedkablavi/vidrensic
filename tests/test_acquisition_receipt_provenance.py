@@ -18,17 +18,11 @@ from vidrensic.core.audit import AuditLog
 def _source_info(source: Path) -> SourceInfo:
     return SourceInfo(
         path=source.resolve(),
-        size_bytes=16,
+        exists=True,
         is_block_device=False,
+        size_bytes=16,
         read_only=None,
         mounted_at=(),
-        filesystem_device=None,
-        inode=None,
-        block_major=None,
-        block_minor=None,
-        serial=None,
-        wwn=None,
-        model=None,
     )
 
 
@@ -58,7 +52,10 @@ def _audit(plan: AcquisitionPlan, return_codes: tuple[int, ...] = (0,)) -> None:
     audit.append("ddrescue.session.started", {"tool": {"sha256": "ab" * 32}})
     audit.append(
         "ddrescue.session.finished",
-        {"return_codes": list(return_codes), "all_zero": bool(return_codes) and all(code == 0 for code in return_codes)},
+        {
+            "return_codes": list(return_codes),
+            "all_zero": bool(return_codes) and all(code == 0 for code in return_codes),
+        },
     )
 
 
@@ -146,7 +143,10 @@ def test_tampered_tool_audit_is_rejected(tmp_path: Path) -> None:
     _audit(plan)
     audit_path = tool_audit_path(plan.mapfile)
     text = audit_path.read_text(encoding="utf-8")
-    audit_path.write_text(text.replace("ddrescue.session.started", "ddrescue.session.STARTED", 1), encoding="utf-8")
+    audit_path.write_text(
+        text.replace("ddrescue.session.started", "ddrescue.session.STARTED", 1),
+        encoding="utf-8",
+    )
 
     receipt = build_acquisition_receipt(plan, _source_info(plan.source), [0])
     assert receipt.status == "REVIEW"
@@ -170,7 +170,10 @@ def test_oversized_source_binding_is_rejected_without_unbounded_json_load(tmp_pa
     _bind(plan)
     _audit(plan)
     binding_path = source_binding_path(plan.mapfile)
-    binding_path.write_text("{" + (" " * (MAX_SOURCE_BINDING_BYTES + 1)) + "}", encoding="utf-8")
+    binding_path.write_text(
+        "{" + (" " * (MAX_SOURCE_BINDING_BYTES + 1)) + "}",
+        encoding="utf-8",
+    )
 
     receipt = build_acquisition_receipt(plan, _source_info(plan.source), [0])
     assert receipt.status == "REVIEW"
