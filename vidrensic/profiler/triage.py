@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-import json
 
 from vidrensic.acquisition.linux import inspect_source, require_safe_source
+from vidrensic.core.private_io import atomic_write_private_json
 from vidrensic.plugins.defaults import default_plugin_registry
 from vidrensic.profiler.hitmap import scan_signature_hitmap
 from vidrensic.profiler.source import profile_source
@@ -37,12 +37,7 @@ class TriageReport:
         }
 
     def write_json(self, output: Path) -> Path:
-        output = output.expanduser().resolve()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        temp = output.with_suffix(output.suffix + ".tmp")
-        temp.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        temp.replace(output)
-        return output
+        return atomic_write_private_json(output, self.to_dict(), allow_replace=True)
 
 
 def _source_info_dict(source: Path) -> dict[str, Any]:
