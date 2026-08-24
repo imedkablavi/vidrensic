@@ -16,11 +16,12 @@ For the release commit:
 8. `twine check` accepts package metadata.
 9. The built wheel installs and `pip check` succeeds.
 10. The installed wheel reruns the public validation corpus successfully.
-11. A CycloneDX 1.6 JSON SBOM is generated from an isolated Python environment containing the built wheel and its resolved runtime dependencies, and CycloneDX validation succeeds.
-12. Release artifacts, qualification JSON, SBOM and build manifest receive SHA-256 checksums and the checksum file verifies before upload.
-13. For a tag publication, the read-only build job completes before the separate publication job receives write/attestation permissions.
-14. For a tag publication, GitHub artifact attestations create SLSA build provenance for the qualified payload and an SBOM attestation for the built wheel.
-15. For a tag publication, every qualified payload file is additionally signed with Sigstore keyless signing and its bundle is verified against the repository/ref/commit identity before upload to the GitHub Release.
+11. The release wheel matches two clean rebuilds byte-for-byte using pinned `build==1.5.0`, `setuptools==84.0.0`, `wheel==0.48.0`, `PYTHONHASHSEED=0`, and `SOURCE_DATE_EPOCH` derived from the exact commit timestamp.
+12. A CycloneDX 1.6 JSON SBOM is generated from an isolated Python environment containing the built wheel and its resolved runtime dependencies, and CycloneDX validation succeeds.
+13. Release artifacts, qualification JSON, SBOM and build manifest receive SHA-256 checksums and the checksum file verifies before upload.
+14. For a tag publication, the read-only build job completes before the separate publication job receives write/attestation permissions.
+15. For a tag publication, GitHub artifact attestations create SLSA build provenance for the qualified payload and an SBOM attestation for the built wheel.
+16. For a tag publication, every qualified payload file is additionally signed with Sigstore keyless signing and its bundle is verified against the repository/ref/commit identity before upload to the GitHub Release.
 
 `workflow_dispatch` is a qualification/build path only. It does not publish a GitHub Release and does not create a signed-release or provenance-attestation claim.
 
@@ -35,6 +36,7 @@ The release workflow is expected to retain:
 - `SOLVER-PROFILE.json`;
 - `REAL-CORPUS-INDEX.json`;
 - `QUALIFICATION-DEPENDENCIES.json`;
+- `REPRODUCIBLE-WHEEL-REPORT.json` with the compared wheel digests, exact commit, `SOURCE_DATE_EPOCH`, Python version and pinned build-tool versions;
 - `SBOM.cdx.json` in CycloneDX 1.6 JSON format;
 - `SHA256SUMS.txt`.
 
@@ -81,19 +83,25 @@ Only that the declared expectations for the exact hashed fixture, fixture versio
 
 Only that the current deterministic synthetic profile selected the same hypothesis set and the profiling script completed within configured bounds. Timing is runner-specific. The reference branch-and-bound implementation is not the production recovery selector.
 
+### Reproducible-wheel PASS proves
+
+Only that the exact release wheel was byte-for-byte identical to two clean rebuilds from the exact Git commit under the pinned Python build-tool environment and deterministic timestamp/hash-seed settings recorded in `REPRODUCIBLE-WHEEL-REPORT.json`.
+
+This does **not** establish cross-OS, cross-Python, cross-toolchain or universal reproducibility. It also does not establish reproducibility for the `.tar.gz` source distribution. Setuptools sdists have additional archive/timestamp sources of nondeterminism, so the workflow deliberately keeps the sdist outside the reproducibility claim until separately demonstrated.
+
 ### SBOM generation PASS proves
 
 Only that the release workflow produced a syntactically valid CycloneDX inventory for the isolated Python runtime environment used to install the built wheel. It does not enumerate operating-system packages, firmware, external tools such as FFmpeg/ddrescue, or dependencies that are not present in that Python environment unless they are represented separately.
 
 ### GitHub provenance-attestation PASS proves
 
-For a tag run where the attestation step actually succeeds, it binds the attested artifact digests to GitHub-generated SLSA build-provenance metadata for that workflow identity. The separate SBOM attestation binds the built wheel to the supplied CycloneDX document. These attestations do not make the build reproducible, independently certified, vulnerability-free, or forensically admissible.
+For a tag run where the attestation step actually succeeds, it binds the attested artifact digests to GitHub-generated SLSA build-provenance metadata for that workflow identity. The separate SBOM attestation binds the built wheel to the supplied CycloneDX document. These attestations do not make the build independently certified, vulnerability-free, or forensically admissible.
 
 Ordinary pull-request CI cannot exercise the tag-only OIDC attestation path. Until a real tag run succeeds, repository configuration should be described as **prepared for provenance attestation**, not as evidence that a published release already has one.
 
 ### Sigstore verification PASS proves
 
-Only that the published payload matched the signed bytes and that the signing certificate/bundle satisfied the GitHub Actions repository/ref/commit verification policy used by the workflow at publication time. It does not prove the software is vulnerability-free, reproducibly built, independently certified, or legally admissible.
+Only that the published payload matched the signed bytes and that the signing certificate/bundle satisfied the GitHub Actions repository/ref/commit verification policy used by the workflow at publication time. It does not prove the software is vulnerability-free, independently certified, or legally admissible.
 
 ## Manual gates before a public stable release
 
