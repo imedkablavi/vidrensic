@@ -6,7 +6,11 @@ import os
 
 import pytest
 
-from vidrensic.core.hashing import FileChangedDuringHashError, hash_file_stable
+from vidrensic.core.hashing import (
+    FileChangedDuringHashError,
+    forensic_hashes_stable,
+    hash_file_stable,
+)
 
 
 def test_stable_hash_matches_sha256_for_unchanged_regular_file(tmp_path: Path) -> None:
@@ -17,6 +21,34 @@ def test_stable_hash_matches_sha256_for_unchanged_regular_file(tmp_path: Path) -
     result = hash_file_stable(path, ("sha256",), block_size=4)
 
     assert result == {"sha256": sha256(payload).hexdigest()}
+
+
+def test_stable_hash_validates_arguments(tmp_path: Path) -> None:
+    path = tmp_path / "artifact.bin"
+    path.write_bytes(b"data")
+
+    with pytest.raises(ValueError, match="block_size"):
+        hash_file_stable(path, ("sha256",), block_size=0)
+    with pytest.raises(ValueError, match="at least one hash"):
+        hash_file_stable(path, ())
+
+
+def test_stable_hash_rejects_missing_or_nonregular_target(tmp_path: Path) -> None:
+    with pytest.raises(FileChangedDuringHashError, match="unable to open"):
+        hash_file_stable(tmp_path / "missing.bin", ("sha256",))
+    with pytest.raises(FileChangedDuringHashError, match="not a regular file"):
+        hash_file_stable(tmp_path, ("sha256",))
+
+
+def test_forensic_hashes_stable_wrapper_returns_hashset(tmp_path: Path) -> None:
+    path = tmp_path / "artifact.bin"
+    payload = b"wrapper"
+    path.write_bytes(payload)
+
+    result = forensic_hashes_stable(path, include_sha512=False)
+
+    assert result.sha256 == sha256(payload).hexdigest()
+    assert result.sha512 is None
 
 
 def test_stable_hash_rejects_in_place_mutation_during_read(tmp_path: Path) -> None:
