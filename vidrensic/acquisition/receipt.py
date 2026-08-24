@@ -12,6 +12,9 @@ from vidrensic.acquisition.mapfile import MapSummary, parse_mapfile
 from vidrensic.core.hashing import forensic_hashes
 
 
+PRIVATE_RECEIPT_MODE = 0o600
+
+
 @dataclass(frozen=True)
 class AcquisitionReceipt:
     source: Path
@@ -83,11 +86,16 @@ class AcquisitionReceipt:
             raise FileExistsError(f"partial acquisition receipt already exists: {partial}")
         try:
             with partial.open("x", encoding="utf-8") as fh:
+                # Receipt paths, device mount information and hashes are case
+                # metadata. Do not let a permissive process umask make them
+                # group/world-readable when the caller writes outside a Case.
+                os.fchmod(fh.fileno(), PRIVATE_RECEIPT_MODE)
                 json.dump(self.to_dict(), fh, indent=2, sort_keys=True)
                 fh.write("\n")
                 fh.flush()
                 os.fsync(fh.fileno())
             partial.replace(path)
+            os.chmod(path, PRIVATE_RECEIPT_MODE)
         except Exception:
             if partial.exists():
                 partial.unlink()
