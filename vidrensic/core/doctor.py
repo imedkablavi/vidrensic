@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+from typing import BinaryIO
+import os
 import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 
 from cryptography import __version__ as cryptography_version
 
 from vidrensic import __product__, __version__
+
+
+MAX_TOOL_VERSION_STDOUT_BYTES = 64 * 1024
+MAX_TOOL_VERSION_STDERR_BYTES = 64 * 1024
 
 
 @dataclass(frozen=True)
@@ -80,32 +88,84 @@ TOOL_SPECS = (
 )
 
 
+def _read_bounded_version_output(
+    handle: BinaryIO,
+    *,
+    limit: int,
+) -> tuple[bytes, bool]:
+    if limit <= 0:
+        raise ValueError("version output limit must be positive")
+    handle.flush()
+    handle.seek(0)
+    data = handle.read(limit + 1)
+    if len(data) > limit:
+        return data[:limit], True
+    return data, False
+
+
+def _resolve_doctor_tool(path: str) -> Path:
+    try:
+        resolved = Path(path).expanduser().resolve(strict=True)
+    except OSError as exc:
+        raise FileNotFoundError(f"resolved tool path is unavailable: {path}") from exc
+    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+        raise PermissionError(f"resolved tool path is not an executable regular file: {resolved}")
+    return resolved
+
+
 def _first_version_line(name: str, path: str, args: tuple[str, ...]) -> ToolCheck:
     capability = next(spec[2] for spec in TOOL_SPECS if spec[0] == name)
     mandatory = next(spec[3] for spec in TOOL_SPECS if spec[0] == name)
     try:
-        proc = subprocess.run(
-            [path, *args],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
+        resolved = _resolve_doctor_tool(path)
+        with tempfile.TemporaryFile(mode="w+b") as stdout_file:
+            with tempfile.TemporaryFile(mode="w+b") as stderr_file:
+                proc = subprocess.run(
+                    [str(resolved), *args],
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    timeout=5,
+                    check=False,
+                )
+                stdout, stdout_truncated = _read_bounded_version_output(
+                    stdout_file,
+                    limit=MAX_TOOL_VERSION_STDOUT_BYTES,
+                )
+                stderr, stderr_truncated = _read_bounded_version_output(
+                    stderr_file,
+                    limit=MAX_TOOL_VERSION_STDERR_BYTES,
+                )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return ToolCheck(name, False, path, None, capability, mandatory, type(exc).__name__)
-    text = proc.stdout or proc.stderr
-    first = text.splitlines()[0].strip() if text.splitlines() else None
+
+    display_path = str(resolved)
+    if stdout_truncated or stderr_truncated:
+        return ToolCheck(
+            name,
+            False,
+            display_path,
+            None,
+            capability,
+            mandatory,
+            "version command output exceeded safety limit",
+        )
+
+    selected = stdout if stdout.strip() else stderr
+    text = selected.decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    first = lines[0].strip() if lines else None
     if proc.returncode != 0:
         return ToolCheck(
             name,
             False,
-            path,
+            display_path,
             first,
             capability,
             mandatory,
             f"version command returned {proc.returncode}",
         )
-    return ToolCheck(name, True, path, first, capability, mandatory)
+    return ToolCheck(name, True, display_path, first, capability, mandatory)
 
 
 def run_doctor() -> DoctorReport:
