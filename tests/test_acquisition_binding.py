@@ -8,6 +8,7 @@ import pytest
 from vidrensic.acquisition.binding import (
     CONFIRMED_LEGACY,
     CONFIRMED_NEW,
+    MAX_SOURCE_BINDING_BYTES,
     PENDING_LEGACY,
     confirm_legacy_binding,
     ensure_source_binding,
@@ -109,6 +110,34 @@ def test_legacy_state_requires_explicit_confirmation_before_resume(tmp_path: Pat
     assert confirmed.confirmed_utc is not None
     resumed = _ensure(source, output, mapfile, existing=True)
     assert resumed.state == CONFIRMED_LEGACY
+
+
+def test_source_binding_load_is_size_bounded(tmp_path: Path) -> None:
+    path = tmp_path / "oversized.map.source.json"
+    path.write_bytes(b"{" + (b" " * (MAX_SOURCE_BINDING_BYTES + 1)) + b"}")
+    with pytest.raises(ValueError, match="maximum size"):
+        load_source_binding(path)
+
+
+def test_symlinked_source_binding_is_rejected_by_resume_path(tmp_path: Path) -> None:
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"A" * 200_000)
+    output = tmp_path / "image.bin"
+    mapfile = tmp_path / "image.map"
+    binding = _ensure(source, output, mapfile)
+    binding_path = source_binding_path(mapfile)
+    real = tmp_path / "saved-binding.json"
+    binding_path.replace(real)
+    try:
+        binding_path.symlink_to(real.name)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable on this platform")
+
+    with pytest.raises(ValueError, match="may not be a symlink"):
+        load_source_binding(binding_path)
+    with pytest.raises(ValueError, match="may not be a symlink"):
+        _ensure(source, output, mapfile, existing=True)
+    assert binding.state == CONFIRMED_NEW
 
 
 def _fingerprint(*, wwn: str | None, serial: str | None, major: int, minor: int) -> SourceFingerprint:
