@@ -24,11 +24,23 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install qualification and build tooling
+      - name: Install qualification and pinned build tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e '.[dev]' 'build==1.5.0' 'twine==7.0.0' 'cyclonedx-bom==7.3.1'
+          python -m pip install \
+            -e '.[dev]' \
+            'build==1.5.0' \
+            'setuptools==84.0.0' \
+            'wheel==0.48.0' \
+            'twine==7.0.0' \
+            'cyclonedx-bom==7.3.1'
           python -m pip check
+          python - <<'PY'
+          import importlib.metadata as metadata
+          assert metadata.version('build') == '1.5.0'
+          assert metadata.version('setuptools') == '84.0.0'
+          assert metadata.version('wheel') == '0.48.0'
+          PY
 
       - name: Source release qualification
         run: |
@@ -42,7 +54,19 @@ jobs:
           python -c "import json; r=json.load(open('solver-profile.json')); assert r['selection_equivalent'] is True"
 
       - name: Build source and wheel distributions
-        run: python -m build
+        run: |
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          export PYTHONHASHSEED=0
+          python -m build --no-isolation
+
+      - name: Verify byte-for-byte reproducible release wheel
+        run: |
+          WHEEL="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          test -n "$WHEEL"
+          python scripts/check_reproducible_wheel.py \
+            --out reproducible-wheel-report.json \
+            --reference-wheel "$WHEEL"
+          python -c "import json; r=json.load(open('reproducible-wheel-report.json')); assert r['reproducible'] is True"
 
       - name: Validate package metadata
         run: python -m twine check dist/*.whl dist/*.tar.gz
@@ -133,6 +157,7 @@ jobs:
           cp source-validation-report.json dist/SOURCE-VALIDATION-REPORT.json
           cp wheel-validation-report.json dist/WHEEL-VALIDATION-REPORT.json
           cp solver-profile.json dist/SOLVER-PROFILE.json
+          cp reproducible-wheel-report.json dist/REPRODUCIBLE-WHEEL-REPORT.json
           cp validation_corpus/real/real-corpus-index.json dist/REAL-CORPUS-INDEX.json
 
       - name: Write build manifest
@@ -144,7 +169,7 @@ jobs:
           from pathlib import Path
 
           manifest = {
-              'schema_version': 4,
+              'schema_version': 5,
               'product': 'Vidrensic',
               'ref': os.environ.get('GITHUB_REF_NAME'),
               'commit': os.environ.get('GITHUB_SHA'),
@@ -159,6 +184,7 @@ jobs:
                   'solver_profile': 'synthetic equivalence/profile; not a performance guarantee',
                   'runtime_dependency_inventory': 'direct resolved requirements in qualification environment',
                   'sbom': 'CycloneDX 1.6 generated from an isolated environment containing the built wheel and its resolved runtime dependencies',
+                  'reproducible_wheel': 'byte-for-byte comparison of the release wheel against two clean rebuilds using pinned Python build tooling and SOURCE_DATE_EPOCH; sdist excluded',
               },
               'publication_policy': {
                   'workflow_dispatch': 'qualification artifact only; no release-signature or provenance-attestation claim',
@@ -174,7 +200,7 @@ jobs:
       - name: Generate SHA-256 checksums
         run: |
           cd dist
-          sha256sum BUILD-MANIFEST.json QUALIFICATION-DEPENDENCIES.json REAL-CORPUS-INDEX.json SBOM.cdx.json SOLVER-PROFILE.json SOURCE-VALIDATION-REPORT.json WHEEL-VALIDATION-REPORT.json *.whl *.tar.gz > SHA256SUMS.txt
+          sha256sum BUILD-MANIFEST.json QUALIFICATION-DEPENDENCIES.json REAL-CORPUS-INDEX.json REPRODUCIBLE-WHEEL-REPORT.json SBOM.cdx.json SOLVER-PROFILE.json SOURCE-VALIDATION-REPORT.json WHEEL-VALIDATION-REPORT.json *.whl *.tar.gz > SHA256SUMS.txt
           sha256sum -c SHA256SUMS.txt
 
       - name: Upload qualified release payload
