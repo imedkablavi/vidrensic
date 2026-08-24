@@ -54,7 +54,10 @@ def test_stable_hash_rejects_path_replacement_while_old_fd_is_open(tmp_path: Pat
             replaced = True
             os.replace(replacement, path)
 
-    with pytest.raises(FileChangedDuringHashError, match="pathname was replaced"):
+    with pytest.raises(
+        FileChangedDuringHashError,
+        match=r"changed during hashing|pathname was replaced",
+    ):
         hash_file_stable(path, ("sha256",), block_size=8, progress=replace_path)
     assert replaced is True
     assert path.read_bytes() == b"B" * 64
