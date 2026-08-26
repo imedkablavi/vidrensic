@@ -2,7 +2,7 @@
 
 This roadmap is ordered by forensic dependency, not by visual appeal. A feature is not considered production-ready until it has regression fixtures, bounded failure behavior and validation evidence matching the claim.
 
-## Phase A — Forensic foundation ✅
+## Phase A - Forensic foundation
 
 - [x] Independent repository and product identity
 - [x] Proprietary ownership/license notices
@@ -17,7 +17,7 @@ This roadmap is ordered by forensic dependency, not by visual appeal. A feature 
 - [x] plugin protocol/registry
 - [x] CI + Security automation
 
-## Phase B — WFS reconstruction 🧪
+## Phase B - WFS reconstruction
 
 - [x] WFS timestamp codec
 - [x] WFS record framing parser
@@ -44,7 +44,7 @@ Exit criteria for higher maturity:
 - bounded/truncated global searches remain REVIEW rather than fake optimum/PASS;
 - partially overwritten cases produce explicit salvage/corruption maps.
 
-## Phase C — Evidence acquisition workstation
+## Phase C - Evidence acquisition workstation
 
 - [x] case-aware acquisition jobs
 - [x] source identity capture foundation
@@ -57,7 +57,7 @@ Exit criteria for higher maturity:
 - [ ] interruption/kill/resume stress corpus
 - [ ] bad-sector simulator and repeatable acquisition failure tests
 
-## Phase D — Global reconstruction solver 🧪
+## Phase D - Global reconstruction solver
 
 ### Generic solver
 
@@ -85,7 +85,7 @@ Hard constraints:
 - path-dependent WFS state is never collapsed into a false context-free edge;
 - search bounds and uncertainty are written into the manifest.
 
-## Phase E — Validation corpus and QA 🧪
+## Phase E - Validation corpus and QA
 
 - [x] versioned machine-readable corpus schema
 - [x] provenance + redistributability metadata
@@ -104,7 +104,7 @@ Hard constraints:
 
 See `VALIDATION.md` and `VALIDATION_CORPUS.md`.
 
-## Phase F — Media validation engine
+## Phase F - Media validation engine
 
 - [ ] native stream inventory persistence
 - [x] ffprobe probing foundation
@@ -119,7 +119,7 @@ See `VALIDATION.md` and `VALIDATION_CORPUS.md`.
 - [ ] remux-first repair workflow
 - [ ] controlled transcode proxy workflow
 
-## Phase G — Review workstation
+## Phase G - Review workstation
 
 Primary review UX target:
 
@@ -150,7 +150,7 @@ Primary review UX target:
 - [ ] safe derived-copy deletion plans bound to file identity
 - [ ] deletion audit/tombstones
 
-## Phase H — Unknown DVR/NVR profiler
+## Phase H - Unknown DVR/NVR profiler
 
 - [x] bounded source samples
 - [x] entropy/signature evidence
@@ -164,7 +164,7 @@ Primary review UX target:
 
 The profiler must never silently upload evidence.
 
-## Phase I — Additional recorder families
+## Phase I - Additional recorder families
 
 - [ ] Hikvision HIKBTREE/data-block variants
 - [ ] WFH 1/2/3/4
@@ -176,7 +176,7 @@ The profiler must never silently upload evidence.
 
 No family is promoted from a research target merely because its name or signature is known.
 
-## Phase J — Deleted and partially overwritten recovery
+## Phase J - Deleted and partially overwritten recovery
 
 - [ ] orphan recording-start discovery
 - [ ] unindexed fragment sets
@@ -187,7 +187,7 @@ No family is promoted from a research target merely because its name or signatur
 - [ ] corruption intervals in exported report
 - [ ] confidence separated from playable duration
 
-## Phase K — Multi-disk and forensic image formats
+## Phase K - Multi-disk and forensic image formats
 
 - [x] file/JBOD/RAID0 random-access foundation with supplied geometry
 - [ ] RAID0 geometry discovery/validation
@@ -196,7 +196,7 @@ No family is promoted from a research target merely because its name or signatur
 - [ ] AFF4 adapter with independent verification
 - [ ] multi-disk recorder profile hypotheses
 
-## Phase L — Evidence export & reporting
+## Phase L - Evidence export & reporting
 
 - [ ] forensic-master export profile
 - [ ] review-copy export profile
@@ -208,7 +208,7 @@ No family is promoted from a research target merely because its name or signatur
 - [ ] examiner notes/bookmarks export
 - [ ] external review index
 
-## Phase M — Commercial hardening
+## Phase M - Commercial hardening
 
 - [ ] structured logging and schema migrations
 - [ ] crash-safe transaction review
