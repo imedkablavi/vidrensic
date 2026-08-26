@@ -52,7 +52,7 @@ Pure functions, parsers, record models and deterministic transforms are tested a
 
 ### 2. Adversarial / malformed inputs
 
-Parsers receive short, truncated, inconsistent and randomized byte sequences. The expected outcome is bounded rejection or explicit uncertainty — never uncontrolled reads or plausible fabricated metadata.
+Parsers receive short, truncated, inconsistent and randomized byte sequences. The expected outcome is bounded rejection or explicit uncertainty - never uncontrolled reads or plausible fabricated metadata.
 
 ### 3. Synthetic reconstruction
 
