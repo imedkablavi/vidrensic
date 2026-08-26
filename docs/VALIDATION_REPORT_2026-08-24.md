@@ -17,10 +17,10 @@ The appropriate product state remains alpha/development with explicit review bou
 
 ## Status legend
 
-- **IMPLEMENTED** — code/test/documentation change exists in this audit branch; automated checks still govern correctness for the final PR head.
-- **PARTIAL** — useful bounded capability exists, but a required validation/integration layer is missing.
-- **BLOCKED** — promotion requires evidence or infrastructure not present and must not be replaced with a synthetic claim.
-- **MANUAL GATE** — source changes alone cannot prove completion.
+- **IMPLEMENTED** - code/test/documentation change exists in this audit branch; automated checks still govern correctness for the final PR head.
+- **PARTIAL** - useful bounded capability exists, but a required validation/integration layer is missing.
+- **BLOCKED** - promotion requires evidence or infrastructure not present and must not be replaced with a synthetic claim.
+- **MANUAL GATE** - source changes alone cannot prove completion.
 
 ## Priority-by-priority findings
 
@@ -35,7 +35,7 @@ The appropriate product state remains alpha/development with explicit review bou
 | E01 / Ex01 / AFF4 | **STRATEGY ONLY** | Added a read-only adapter contract, fail-closed rules and fixture qualification plan. No adapter implementation or support claim is present. Missing segments/objects or integrity failures must stop logical reading rather than fall back to raw-container bytes. |
 | Malformed/adversarial input tests | **IMPLEMENTED** | Expanded deterministic malformed-input tests for oversized WFS packet lengths, implausible DHAV lengths, Annex-B start-code storms, bounded salvage enumeration and randomized mutation ranges. These are regression tests, not a proof of parser vulnerability absence. |
 | Acquisition/hash/provenance failure recovery | **PARTIAL** | Added tests for source-identity change refusal and atomic acquisition-receipt failure behavior, plus a recovery procedure. Existing source fingerprinting can detect a changed evidence identity. Known gap: ddrescue resume does not yet automatically persist/require a prior fingerprint sidecar on every resume. |
-| Installer/package/release qualification | **PARTIAL** | CI validates Python 3.11–3.13 on Linux; release workflow now runs source tests, corpus/index gates, solver equivalence profile, builds sdist/wheel, runs `twine check`, installs the wheel, reruns the synthetic corpus, records qualification reports and verifies SHA-256 sums before upload. No native OS installer is qualified by this audit. |
+| Installer/package/release qualification | **PARTIAL** | CI validates Python 3.11-3.13 on Linux; release workflow now runs source tests, corpus/index gates, solver equivalence profile, builds sdist/wheel, runs `twine check`, installs the wheel, reruns the synthetic corpus, records qualification reports and verifies SHA-256 sums before upload. No native OS installer is qualified by this audit. |
 | Social preview | **MANUAL GATE** | Existing vector brand assets were reviewed and a claim-safe preview checklist was added. The GitHub social-preview setting is not exposed by the connected repository tool, so activation/rendering is not falsely reported as complete. |
 | Public demo | **IMPLEMENTED / SYNTHETIC** | Demo documentation now separates the deterministic DHAV demo from the public validation corpus and narrows exactly what each proves. It remains synthetic and cannot establish real-recorder compatibility. |
 | Licensing strategy | **REVIEWED, UNCHANGED** | Current bespoke proprietary license remains untouched. `docs/LICENSING_STRATEGY.md` documents proprietary, permissive, copyleft and dual-license tradeoffs, including contributor-rights and fixture/data-license separation. |
