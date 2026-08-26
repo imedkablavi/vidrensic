@@ -4,7 +4,7 @@ Use these as starting points after the repository is public and the first alpha 
 
 ## Short announcement
 
-**Vidrensic 0.5 alpha — forensic-first DVR/NVR evidence reconstruction**
+**Vidrensic 0.5 alpha - DVR/NVR evidence reconstruction**
 
 Vidrensic is a Linux-first project for proprietary surveillance-storage triage, acquisition, reconstruction and validation. The project focuses on failure modes such as lost indexes, circular storage, interleaved channels, fragmentation, uncertain timestamps and partially damaged recordings rather than treating DVR disks as ordinary file recovery.
 
@@ -16,13 +16,13 @@ Try the demo:
 bash examples/run_demo.sh
 ```
 
-Useful feedback: sanitized recorder/firmware format observations, synthetic fixtures, parser edge cases, reproducible recovery failures and validation methodology.
+Useful feedback includes sanitized recorder/firmware format observations, synthetic fixtures, parser edge cases, reproducible recovery failures and validation methodology.
 
-Please do not upload active-case footage, credentials or cryptographic keys.
+Do not upload active-case footage, credentials or cryptographic keys.
 
 ## Technical forum version
 
-I have been building **Vidrensic**, a forensic-first DVR/NVR storage reconstruction project. The design goal is to keep detection, profiling, parsing, reconstruction and validation as separate capability levels so a recognizable signature is never presented as proof of full recovery support.
+I have been building **Vidrensic**, a DVR/NVR storage reconstruction project designed around forensic evidence handling. Detection, profiling, parsing, reconstruction and validation remain separate capability levels so a recognizable signature is not presented as proof of full recovery support.
 
 Current alpha work includes:
 
@@ -37,7 +37,7 @@ Current alpha work includes:
 
 There is a deterministic synthetic DHAV demo in the repository so the parser/recovery path can be tested without sharing surveillance footage.
 
-I am particularly interested in legally shareable/synthetic fixtures and documentation for recorder filesystem/container variants, especially where firmware changes the structure.
+Useful contributions include legally shareable or synthetic fixtures and documentation for recorder filesystem/container variants, especially where firmware changes the structure.
 
 ## Release tagline
 
