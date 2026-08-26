@@ -31,14 +31,14 @@ Future case manifests should capture, where available:
 
 Vidrensic uses these categories:
 
-**Source** — original evidence device/image.
+**Source** - original evidence device/image.
 
-**Acquisition** — forensic clone or bounded byte-range image.
+**Acquisition** - forensic clone or bounded byte-range image.
 
-**Native recovered artifact** — payload extracted/reconstructed without
+**Native recovered artifact** - payload extracted/reconstructed without
 intentional media transcoding.
 
-**Derived review artifact** — remuxed, normalized, transcoded, enhanced, clipped,
+**Derived review artifact** - remuxed, normalized, transcoded, enhanced, clipped,
 or otherwise transformed media intended for review convenience.
 
 Every derived artifact should retain provenance to its input artifacts and the
