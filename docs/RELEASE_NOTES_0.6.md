@@ -1,4 +1,4 @@
-# Vidrensic 0.6 alpha — global WFS reconstruction and validation framework
+# Vidrensic 0.6 alpha - global WFS reconstruction and validation framework
 
 Vidrensic 0.6 is a validation-focused development milestone. It strengthens WFS reconstruction and QA, but it does **not** promote the project to independently validated forensic software.
 

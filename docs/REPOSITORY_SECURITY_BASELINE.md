@@ -2,7 +2,7 @@
 
 This document records repository-level controls that protect Vidrensic source, review gates and release artifacts. It is separate from forensic-format validation: a secure repository does not prove recorder compatibility, and a passing parser corpus does not prove repository governance.
 
-## Observed repository state — 2026-08-24
+## Observed repository state - 2026-08-24
 
 At the start of this hardening pass, GitHub reported the default `main` branch as **not protected** and with no enforced required status checks. That is a repository-governance gap even when the current CI, Security and CodeQL workflows are green.
 

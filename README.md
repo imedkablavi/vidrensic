@@ -25,7 +25,7 @@ Acquire · Triage · Detect · Reconstruct · Validate · Audit
 
 <img src="docs/assets/vidrensic-hero.svg" width="100%" alt="Vidrensic forensic video platform">
 
-> **Status — 0.6 alpha development.** Vidrensic is under active forensic validation. It is not independently certified and must not be represented as a validated replacement for an organization’s required forensic procedures. Unsupported, ambiguous and unvalidated operations are deliberately surfaced instead of being hidden behind success-looking output.
+> **Status - 0.6 alpha development.** Vidrensic is under active forensic validation. It is not independently certified and must not be represented as a validated replacement for an organization’s required forensic procedures. Unsupported, ambiguous and unvalidated operations are deliberately surfaced instead of being hidden behind success-looking output.
 
 ## Why Vidrensic exists
 
@@ -394,6 +394,6 @@ Vidrensic is currently proprietary software. Repository visibility does not by i
 
 <div align="center">
 
-**Vidrensic — reconstruct the recording, preserve the evidence.**
+**Vidrensic - reconstruct the recording, preserve the evidence.**
 
 </div>
