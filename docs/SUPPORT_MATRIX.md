@@ -37,7 +37,7 @@ The normal `vidrensic recover wfs` CLI now defaults to `--strategy global`. The 
 
 The compatibility solver advances simultaneous chains step-by-step. It validates candidate continuations structurally, prevents direct fragment reuse, and records ambiguity, but an early local assignment can affect later choices.
 
-### Global — experimental
+### Global - experimental
 
 Global mode does **not** model WFS as a context-free edge graph. A continuation can only be judged using the carry/tail produced by the exact preceding path. The engine therefore:
 
@@ -80,7 +80,7 @@ The public corpus is intentionally synthetic and currently proves the **validati
 
 See `VALIDATION_CORPUS.md`.
 
-## Research targets — not yet claimed as supported
+## Research targets - not yet claimed as supported
 
 The following families/variants are explicitly tracked because they occur in commercial DVR-forensics ecosystems, but Vidrensic must not label them supported until samples and regression fixtures validate the implementation:
 
