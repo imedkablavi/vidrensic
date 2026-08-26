@@ -6,7 +6,7 @@ This document is analysis only. It does **not** change `LICENSE`, copyright owne
 
 The repository currently uses a bespoke proprietary license. Public visibility of the source does not grant general rights to use, modify or redistribute it. That model maximizes owner control over commercial use, redistribution, competing products and unreleased forensic research, but it creates significant friction for outside adoption and contribution.
 
-## Option 1 — remain proprietary
+## Option 1 - remain proprietary
 
 Advantages:
 
@@ -23,7 +23,7 @@ Tradeoffs:
 - community contributions require explicit contributor terms so the owner has clear rights to accept and distribute them;
 - calling the project “open source” would be inaccurate under the current license.
 
-## Option 2 — permissive open source (Apache-2.0 or MIT)
+## Option 2 - permissive open source (Apache-2.0 or MIT)
 
 Advantages:
 
@@ -39,7 +39,7 @@ Tradeoffs:
 - proprietary recorder research committed to the repository becomes broadly reusable;
 - changing later from already-released permissive versions does not revoke rights already granted to those versions.
 
-## Option 3 — copyleft open source (GPL/AGPL family)
+## Option 3 - copyleft open source (GPL/AGPL family)
 
 Advantages:
 
@@ -53,7 +53,7 @@ Tradeoffs:
 - some commercial adopters prohibit or heavily review strong-copyleft components;
 - copyleft still does not create a prohibition on commercial competition; it changes the conditions under which covered code can be distributed/used.
 
-## Option 4 — dual licensing
+## Option 4 - dual licensing
 
 A common commercial structure is to publish the same core under an open-source license while also offering a separate commercial license for customers that want different terms.
 
