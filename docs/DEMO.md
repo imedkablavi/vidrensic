@@ -95,7 +95,7 @@ Inspect the manifest rather than relying on filenames alone:
 python -m json.tool .vidrensic-demo/recovered/dhav_manifest.json | less
 ```
 
-## What this demo proves — and what it does not
+## What this demo proves - and what it does not
 
 It proves that the tested build can recognize the documented synthetic DHAV structure, validate its synthetic frame boundaries/footer lengths, preserve physical ordering, split frames by channel, extract elementary video payload bytes and emit a manifest.
 
