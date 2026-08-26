@@ -1,4 +1,4 @@
-# Vidrensic 0.5 alpha — release notes
+# Vidrensic 0.5 alpha - release notes
 
 Vidrensic 0.5 is the first milestone intended for controlled public alpha evaluation. It is **not** an independently certified forensic tool and does not claim universal DVR/NVR recovery.
 
