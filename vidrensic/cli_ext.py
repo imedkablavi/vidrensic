@@ -15,7 +15,7 @@ from vidrensic.core.doctor import run_doctor
 from vidrensic.core.units import parse_byte_size
 from vidrensic.crypto import KeyMaterial, decrypt_aes_file
 from vidrensic.plugins.wfs.recovery import recover_segment
-from vidrensic.validation import load_corpus, run_corpus
+from vidrensic.validation import create_private_case_manifest, load_corpus, run_corpus
 
 
 EXTENDED_COMMANDS = """
@@ -25,6 +25,7 @@ Extended commands:
   acquire verify         verify ddrescue output/map and emit receipt
   recover wfs            path-dependent global WFS reconstruction (local fallback available)
   validate corpus        run deterministic ground-truth validation corpus
+  validate private-case  hash and stage a restricted real-recorder validation manifest locally
 """.strip()
 
 
@@ -79,7 +80,7 @@ def _doctor(argv: list[str]) -> int:
         print(f"core_ready={str(data['core_ready']).lower()}")
         for tool in data["tools"]:
             state = "OK" if tool["available"] else "MISSING"
-            version = f" — {tool['version']}" if tool["version"] else ""
+            version = f" - {tool['version']}" if tool["version"] else ""
             print(f"{state:7} {tool['name']:9} [{tool['capability']}]{version}")
     return 0 if report.core_ready else 2
 
@@ -330,6 +331,48 @@ def _recover_wfs(argv: list[str]) -> int:
     return 0
 
 
+def _validate_private_case(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="vidrensic validate private-case",
+        description=(
+            "Create owner-only staging metadata for a restricted real-recorder fixture. "
+            "The evidence source is never copied or uploaded."
+        ),
+    )
+    parser.add_argument("source", type=Path)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--case-id", required=True)
+    parser.add_argument(
+        "--family",
+        choices=("wfs", "dhav", "hikvision", "annexb", "mpegps", "generic"),
+        required=True,
+    )
+    parser.add_argument("--manufacturer")
+    parser.add_argument("--model")
+    parser.add_argument("--firmware")
+    parser.add_argument("--note", action="append", default=[])
+    args = parser.parse_args(argv)
+
+    try:
+        manifest = create_private_case_manifest(
+            args.source,
+            args.out,
+            case_id=args.case_id,
+            family=args.family,
+            manufacturer=args.manufacturer,
+            model=args.model,
+            firmware=args.firmware,
+            notes=args.note,
+        )
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+
+    print(f"manifest={manifest.path.expanduser().resolve()}")
+    print(f"source_sha256={manifest.source_sha256}")
+    print(f"source_size_bytes={manifest.source_size_bytes}")
+    return 0
+
+
 def _validate_corpus(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="vidrensic validate corpus",
@@ -374,6 +417,8 @@ def main(argv: list[str] | None = None) -> int:
         return _acquire_verify(args[2:])
     if args[:2] == ["recover", "wfs"]:
         return _recover_wfs(args[2:])
+    if args[:2] == ["validate", "private-case"]:
+        return _validate_private_case(args[2:])
     if args[:2] == ["validate", "corpus"]:
         return _validate_corpus(args[2:])
     return legacy_main(args)
