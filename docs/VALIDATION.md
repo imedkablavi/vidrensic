@@ -89,6 +89,25 @@ For each real fixture, ground truth should document acquisition controls, source
 
 A family should not be promoted to independently validated maturity merely because the developers can reproduce their own fixture result. A separate examiner/lab should be able to execute the declared corpus/report procedure from hashes and instructions without developer intervention.
 
+## Restricted real-recorder case staging
+
+For legally authorized or otherwise restricted fixtures that must remain outside the public repository, Vidrensic provides a local staging command:
+
+```bash
+vidrensic validate private-case /path/to/recorder-image.raw \
+  --out /path/to/private-case.json \
+  --case-id lab-wfs-001 \
+  --family wfs \
+  --manufacturer Example \
+  --model Recorder-1 \
+  --firmware 1.0 \
+  --note "restricted lab fixture"
+```
+
+The command hashes the existing source in place, records only metadata and hashes, and writes the manifest with owner-only permissions. It refuses symlink sources, manifest overwrites, unsafe output placement and oversized/control-character metadata.
+
+This output is an internal `private-validation-case` staging manifest. It is deliberately **not** the public `real-corpus-index.json` format, does not admit a recorder as validated, does not manufacture ground truth and never copies or uploads the evidence source. A case should only be promoted into the real-recorder corpus after the legal/provenance and independent ground-truth requirements are actually satisfied.
+
 ## Status semantics
 
 - `PASS`: required validation actually ran and no unresolved hard condition remains.
