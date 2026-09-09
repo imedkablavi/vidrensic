@@ -11,6 +11,14 @@ from vidrensic.core.private_io import atomic_write_private_json
 MAX_IDENTIFIER_CHARS = 128
 MAX_NOTES = 128
 MAX_NOTE_CHARS = 4 * 1024
+PRIVATE_VALIDATION_FAMILIES = frozenset({
+    "wfs",
+    "dhav",
+    "hikvision",
+    "annexb",
+    "mpegps",
+    "generic",
+})
 
 
 @dataclass(frozen=True)
@@ -77,6 +85,9 @@ def create_private_case_manifest(
 
     case_id = _safe_text(case_id, "case_id")
     family = _safe_text(family, "family")
+    if family not in PRIVATE_VALIDATION_FAMILIES:
+        allowed = ", ".join(sorted(PRIVATE_VALIDATION_FAMILIES))
+        raise ValueError(f"family must be one of: {allowed}")
     if output.exists():
         raise FileExistsError(f"validation manifest already exists: {output}")
     try:
@@ -97,13 +108,14 @@ def create_private_case_manifest(
 
     bounded_notes = _bounded_notes(notes)
     hashes = forensic_hashes_stable(source, include_sha512=False)
+    source_size_bytes = source.stat().st_size
     payload: dict[str, Any] = {
         "schema_version": 1,
         "manifest_type": "private-validation-case",
         "case_id": case_id,
         "source": {
             "path": relative_source.as_posix(),
-            "size_bytes": source.stat().st_size,
+            "size_bytes": source_size_bytes,
             "sha256": hashes.sha256,
         },
         "family": family,
@@ -128,6 +140,6 @@ def create_private_case_manifest(
         case_id=case_id,
         source=source,
         source_sha256=hashes.sha256,
-        source_size_bytes=source.stat().st_size,
+        source_size_bytes=source_size_bytes,
         family=family,
     )
