@@ -114,7 +114,7 @@ See `VALIDATION.md` and `VALIDATION_CORPUS.md`.
 - [x] decoder error regions
 - [x] frame-rate inference with confidence
 - [x] duration confidence separate from nominal duration
-- [ ] visual scene sampling/contact sheets
+- [x] visual scene sampling/contact sheets
 - [ ] duplicate/near-duplicate detection
 - [ ] remux-first repair workflow
 - [ ] controlled transcode proxy workflow

@@ -13,6 +13,7 @@ PRODUCT_COMMANDS = (
     ("vidrensic-media <artifact> --out <report>", "Inspect recovered video"),
     ("vidrensic-media <artifact> --out <report> --timeline", "Review video timing"),
     ("vidrensic-media <artifact> --out <report> --decoder-errors", "Map decoder-error regions"),
+    ("vidrensic-scenes <artifact> --out <sheet.png>", "Create visual contact sheet"),
     ("vidrensic-export <artifact> --out <copy> --manifest <report>", "Create a verified copy"),
     ("vidrensic-profiler <source> --out <bundle>", "Prepare a support bundle"),
     ("vidrensic doctor", "Check system readiness"),
@@ -21,6 +22,7 @@ PRODUCT_COMMANDS = (
 ADVANCED_COMMANDS = (
     "vidrensic analyze <source> --out <report>",
     "vidrensic-media <artifact> --out <report> [--timeline] [--decoder-errors] [--qc fast|full]",
+    "vidrensic-scenes <artifact> --out <sheet.png> [--samples 24] [--thumb-width 320]",
     "vidrensic-export <artifact> --out <copy> --manifest <report>",
     "vidrensic-profiler <source> --out <bundle> [--json]",
     "vidrensic acquire verify <source> --output <image> --map <map> --receipt <report>",
