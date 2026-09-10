@@ -9,6 +9,7 @@ def test_product_help_is_clean(capsys) -> None:
     assert "Start here" in output
     assert "vidrensic analyze" in output
     assert "vidrensic-media" in output
+    assert "vidrensic-scenes" in output
     assert "vidrensic-export" in output
     assert "vidrensic-profiler" in output
     assert "WFS" not in output
@@ -20,4 +21,5 @@ def test_advanced_help_is_explicit(capsys) -> None:
     output = capsys.readouterr().out
     assert "Advanced commands" in output
     assert "recover wfs" in output
+    assert "vidrensic-scenes" in output
     assert "vidrensic-profiler" in output
