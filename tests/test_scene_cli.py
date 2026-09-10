@@ -4,6 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 import json
 
+import pytest
+
 from vidrensic import scene_cli
 
 
@@ -56,3 +58,22 @@ def test_scene_cli_json(monkeypatch, tmp_path: Path, capsys) -> None:
 
 def test_scene_cli_rejects_zero_samples() -> None:
     assert scene_cli.main(["video.mp4", "--out", "sheet.png", "--samples", "0"]) == 2
+
+
+def test_scene_cli_cleans_sheet_when_manifest_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "video.mp4"
+    output = tmp_path / "sheet.png"
+    source.write_bytes(b"video")
+
+    def fake_create(*args, **kwargs):
+        output.write_bytes(b"derived")
+        report = _report(source, output)
+        report.write_json = lambda _manifest: (_ for _ in ()).throw(OSError("manifest write failed"))
+        return report
+
+    monkeypatch.setattr(scene_cli, "create_contact_sheet", fake_create)
+
+    assert scene_cli.main([str(source), "--out", str(output)]) == 2
+    assert output.exists() is False
