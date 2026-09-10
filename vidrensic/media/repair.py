@@ -143,8 +143,6 @@ def remux_video(source: Path, destination: Path) -> RemuxReport:
             "0",
             "-c",
             "copy",
-            "-f",
-            output.suffix.lower().lstrip("."),
             str(temp_path),
         ]
         try:
