@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterator
 from statistics import median
 import os
+import selectors
 import shutil
 import subprocess
 import tempfile
+import time
 
 from vidrensic.core.hashing import forensic_hashes_stable
 from vidrensic.core.private_io import atomic_write_private_json
@@ -125,39 +127,84 @@ def _run_frame_probe(
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=stderr_file,
+            bufsize=0,
         )
+        assert process.stdout is not None
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ)
+        pending = b""
         stdout_bytes = 0
+        deadline = time.monotonic() + timeout
+        return_code: int | None = None
         try:
-            assert process.stdout is not None
-            while True:
-                line = process.stdout.readline(MAX_FFPROBE_LINE_BYTES + 1)
-                if not line:
-                    break
-                if len(line) > MAX_FFPROBE_LINE_BYTES:
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
                     process.kill()
                     process.wait()
-                    raise TimelineAnalysisError("ffprobe frame record exceeded the safety limit")
-                stdout_bytes += len(line)
+                    raise TimelineAnalysisError(f"timeline analysis timed out after {timeout} seconds")
+
+                events = selector.select(min(1.0, remaining))
+                if not events:
+                    if process.poll() is None:
+                        continue
+                    continue
+
+                chunk = os.read(process.stdout.fileno(), 64 * 1024)
+                if not chunk:
+                    selector.unregister(process.stdout)
+                    break
+
+                stdout_bytes += len(chunk)
                 if stdout_bytes > MAX_FFPROBE_STDOUT_BYTES:
                     process.kill()
                     process.wait()
                     raise TimelineAnalysisError("ffprobe frame output exceeded the safety limit")
-                parsed = _parse_frame_line(line)
+
+                pending += chunk
+                while b"\n" in pending:
+                    raw_line, pending = pending.split(b"\n", 1)
+                    line = raw_line + b"\n"
+                    if len(line) > MAX_FFPROBE_LINE_BYTES:
+                        process.kill()
+                        process.wait()
+                        raise TimelineAnalysisError("ffprobe frame record exceeded the safety limit")
+                    parsed = _parse_frame_line(line)
+                    if parsed is not None:
+                        yield parsed
+                if len(pending) > MAX_FFPROBE_LINE_BYTES:
+                    process.kill()
+                    process.wait()
+                    raise TimelineAnalysisError("ffprobe frame record exceeded the safety limit")
+
+            if pending:
+                if len(pending) > MAX_FFPROBE_LINE_BYTES:
+                    raise TimelineAnalysisError("ffprobe frame record exceeded the safety limit")
+                parsed = _parse_frame_line(pending)
                 if parsed is not None:
                     yield parsed
 
-            try:
-                return_code = process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired as exc:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 process.kill()
                 process.wait()
-                raise TimelineAnalysisError(f"timeline analysis timed out after {timeout} seconds") from exc
+                raise TimelineAnalysisError(f"timeline analysis timed out after {timeout} seconds")
+            return_code = process.wait(timeout=remaining)
+        except subprocess.TimeoutExpired as exc:
+            process.kill()
+            process.wait()
+            raise TimelineAnalysisError(f"timeline analysis timed out after {timeout} seconds") from exc
         finally:
+            try:
+                selector.unregister(process.stdout)
+            except (KeyError, ValueError):
+                pass
+            selector.close()
             if process.poll() is None:
                 process.kill()
                 process.wait()
             try:
-                process.stdout.close() if process.stdout is not None else None
+                process.stdout.close()
             except OSError:
                 pass
 
@@ -225,7 +272,7 @@ def analyze_media_timeline(
     frame_count = 0
     keyframe_count = 0
     keyframes: list[float] = []
-    intervals: list[float] = []
+    intervals: list[tuple[int, float]] = []
     anomalies: list[TimelineAnomaly] = []
     pts_non_monotonic = 0
     dts_non_monotonic = 0
@@ -235,58 +282,57 @@ def analyze_media_timeline(
     previous_dts: float | None = None
     truncated = False
 
-    for pts, dts, keyframe, _duration in _run_frame_probe(artifact, timeout=timeout):
-        frame_count += 1
-        if frame_count > MAX_FRAME_RECORDS:
-            truncated = True
-            break
-
-        if keyframe:
-            keyframe_count += 1
-            if pts is not None and len(keyframes) < MAX_KEYFRAMES:
-                keyframes.append(pts)
-            elif pts is not None:
+    stream = _run_frame_probe(artifact, timeout=timeout)
+    try:
+        for pts, dts, keyframe, _duration in stream:
+            if frame_count >= MAX_FRAME_RECORDS:
                 truncated = True
+                break
+            frame_count += 1
 
-        if pts is not None and previous_pts is not None:
-            delta = pts - previous_pts
-            if delta < -1e-6:
-                pts_non_monotonic += 1
+            if keyframe:
+                keyframe_count += 1
+                if pts is not None and len(keyframes) < MAX_KEYFRAMES:
+                    keyframes.append(pts)
+                elif pts is not None:
+                    truncated = True
+
+            if pts is not None and previous_pts is not None:
+                delta = pts - previous_pts
+                if delta < -1e-6:
+                    pts_non_monotonic += 1
+                    if len(anomalies) < MAX_ANOMALIES:
+                        anomalies.append(
+                            TimelineAnomaly(frame_count, "pts-backwards", previous_pts, pts, delta)
+                        )
+                elif abs(delta) <= 1e-9:
+                    duplicate_pts += 1
+                    if len(anomalies) < MAX_ANOMALIES:
+                        anomalies.append(
+                            TimelineAnomaly(frame_count, "duplicate-pts", previous_pts, pts, delta)
+                        )
+                elif len(intervals) < MAX_FRAME_RECORDS:
+                    intervals.append((frame_count, delta))
+            previous_pts = pts if pts is not None else previous_pts
+
+            if dts is not None and previous_dts is not None and dts < previous_dts - 1e-6:
+                dts_non_monotonic += 1
                 if len(anomalies) < MAX_ANOMALIES:
                     anomalies.append(
-                        TimelineAnomaly(frame_count, "pts-backwards", previous_pts, pts, delta)
+                        TimelineAnomaly(frame_count, "dts-backwards", previous_dts, dts, dts - previous_dts)
                     )
-            elif abs(delta) <= 1e-9:
-                duplicate_pts += 1
-                if len(anomalies) < MAX_ANOMALIES:
-                    anomalies.append(
-                        TimelineAnomaly(frame_count, "duplicate-pts", previous_pts, pts, delta)
-                    )
-            elif len(intervals) < MAX_FRAME_RECORDS:
-                intervals.append(delta)
-        previous_pts = pts if pts is not None else previous_pts
+            previous_dts = dts if dts is not None else previous_dts
+    finally:
+        stream.close()
 
-        if dts is not None and previous_dts is not None and dts < previous_dts - 1e-6:
-            dts_non_monotonic += 1
-            if len(anomalies) < MAX_ANOMALIES:
-                anomalies.append(
-                    TimelineAnomaly(frame_count, "dts-backwards", previous_dts, dts, dts - previous_dts)
-                )
-        previous_dts = dts if dts is not None else previous_dts
-
-        if frame_count == MAX_FRAME_RECORDS:
-            truncated = True
-            break
-
-    if intervals:
-        center = median(intervals)
+    interval_values = [delta for _, delta in intervals]
+    if interval_values:
+        center = median(interval_values)
         threshold = max(center * 3.0, 1.0)
-        gap_positions = [item for item in intervals if item > threshold]
-        large_gaps = len(gap_positions)
-        if gap_positions and len(anomalies) < MAX_ANOMALIES:
-            # Keep the compact anomaly map bounded; detailed intervals are in measurements above.
-            for gap in gap_positions[: MAX_ANOMALIES - len(anomalies)]:
-                anomalies.append(TimelineAnomaly(0, "large-gap", None, None, gap))
+        gap_items = [(frame, delta) for frame, delta in intervals if delta > threshold]
+        large_gaps = len(gap_items)
+        for frame, gap in gap_items[: MAX_ANOMALIES - len(anomalies)]:
+            anomalies.append(TimelineAnomaly(frame, "large-gap", None, None, gap))
         inferred_rate = 1.0 / center if center > 0 else None
     else:
         inferred_rate = None
@@ -307,7 +353,7 @@ def analyze_media_timeline(
         keyframes=tuple(keyframes),
         inferred_frame_rate=inferred_rate,
         frame_rate_confidence=_frame_rate_confidence(
-            intervals,
+            interval_values,
             truncated=truncated,
             anomalies=total_anomalies,
         ),
