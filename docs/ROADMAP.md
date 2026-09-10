@@ -143,14 +143,24 @@ Primary review UX target:
 - [x] bookmarks and analyst notes data layer
 - [x] normalized hash-bound review timeline contract
 - [x] sticky preview
-- [ ] hour/date/candidate filters
-- [ ] synchronized matrix view
-- [ ] thumbnail/contact-sheet strip
+- [x] candidate search/state filtering
+- [x] review-update UTC date/hour filters
+- [x] synchronized four-candidate matrix convenience view
+- [x] visual contact-sheet strip
 - [x] frame stepping and playback-speed controls
-- [ ] seek watchdog/reload-position recovery
+- [x] seek watchdog/reload-position recovery
 - [x] initial local graphical workstation UI
+- [ ] recorder-native wall-clock/camera identity filtering
 - [ ] safe derived-copy deletion plans bound to file identity
 - [ ] deletion audit/tombstones
+- [ ] packaged desktop delivery
+
+Important UI boundaries:
+
+- review-update time is not recording wall-clock time;
+- matrix candidate slots are not stable physical camera identities without additional evidence;
+- contact-sheet cells are visual triage aids, not exact forensic frame identifiers;
+- playback recovery never rewrites a registered evidence artifact.
 
 ## Phase H - Unknown DVR/NVR profiler
 
