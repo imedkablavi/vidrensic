@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
-import os
 
+from vidrensic.core.hashing import forensic_hashes_stable
 from vidrensic.core.private_io import atomic_write_private_json
 from vidrensic.validation.corpus import CorpusRunReport, ValidationCorpus, load_corpus, run_corpus
 
@@ -23,14 +22,6 @@ def _git_root(path: Path) -> Path | None:
         if (candidate / ".git").exists():
             return candidate
     return None
-
-
-def _inside(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-    except ValueError:
-        return False
-    return True
 
 
 def _assert_outside_git(path: Path, label: str) -> None:
@@ -59,6 +50,13 @@ def _assert_real_corpus(corpus: ValidationCorpus) -> None:
         )
 
 
+def _stable_source_hashes(corpus: ValidationCorpus) -> dict[str, str]:
+    return {
+        case.case_id: forensic_hashes_stable(case.source, include_sha512=False).sha256
+        for case in corpus.cases
+    }
+
+
 def run_private_corpus(
     manifest: Path,
     output: Path,
@@ -71,6 +69,10 @@ def run_private_corpus(
     default. This prevents a private report or active-case manifest from being
     accidentally committed to a public repository. Set ``allow_git_paths`` only
     when an organization has explicitly chosen a controlled private repository.
+
+    The runner hashes every source before and after execution using the stable
+    forensic hashing path. If a source changes during validation, the run fails
+    closed instead of returning a potentially stale validation report.
 
     No evidence is copied by the runner. Recovery products created by the corpus
     engine remain temporary and are removed by its existing per-expectation
@@ -95,7 +97,16 @@ def run_private_corpus(
         for case in corpus.cases:
             _assert_outside_git(case.source, f"fixture source for {case.case_id}")
 
+    before = _stable_source_hashes(corpus)
     report = run_corpus(corpus)
+    after = _stable_source_hashes(corpus)
+    changed = [case_id for case_id in before if before[case_id] != after[case_id]]
+    if changed:
+        raise PrivateValidationError(
+            "fixture source changed during private validation; report is rejected: "
+            + ", ".join(changed)
+        )
+
     atomic_write_private_json(output, report.to_dict(), allow_replace=False)
     return report
 
