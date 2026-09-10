@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-import json
 import math
 import os
 import sqlite3
@@ -19,7 +18,6 @@ MAX_CLAIMS = 16
 MAX_TEXT_CHARS = 1024
 MAX_POINTER_CHARS = 2048
 MAX_SOURCE_KIND_CHARS = 128
-MAX_RECORDING_YEAR = 9999
 
 ALLOWED_FIELDS = {
     "recording_start_utc",
@@ -54,6 +52,10 @@ class MetadataClaim:
     confidence: float
     created_utc: str
 
+    @property
+    def evidence_backed(self) -> bool:
+        return self.source_kind != "operator-observation" and self.source_sha256 is not None
+
     def to_dict(self) -> dict[str, object]:
         return {
             "claim_id": self.claim_id,
@@ -66,6 +68,7 @@ class MetadataClaim:
             "source_sha256": self.source_sha256,
             "evidence_pointer": self.evidence_pointer,
             "confidence": self.confidence,
+            "evidence_backed": self.evidence_backed,
             "created_utc": self.created_utc,
         }
 
@@ -79,8 +82,23 @@ class CandidateMetadata:
     def values(self) -> dict[str, str]:
         return {claim.field: claim.value for claim in self.claims}
 
+    def field_details(self) -> dict[str, dict[str, object]]:
+        details: dict[str, dict[str, object]] = {}
+        for claim in self.claims:
+            details[claim.field] = {
+                "value": claim.value,
+                "evidence_backed": claim.evidence_backed,
+                "source_kind": claim.source_kind,
+                "source_sha256": claim.source_sha256,
+                "source_path": None if claim.source_path is None else str(claim.source_path),
+                "evidence_pointer": claim.evidence_pointer,
+                "confidence": claim.confidence,
+            }
+        return details
+
     def to_dict(self) -> dict[str, object]:
         values = self.values()
+        field_details = self.field_details()
         return {
             "item_id": self.item_id,
             "artifact_sha256": self.artifact_sha256,
@@ -89,9 +107,10 @@ class CandidateMetadata:
             "camera_slot": values.get("camera_slot"),
             "source_label": values.get("source_label"),
             "format_family": values.get("format_family"),
+            "fields": field_details,
             "claims": [claim.to_dict() for claim in self.claims],
-            "evidence_backed": all(
-                claim.source_sha256 is not None for claim in self.claims
+            "evidence_backed": any(
+                bool(details.get("evidence_backed")) for details in field_details.values()
             ),
         }
 
@@ -214,7 +233,11 @@ class CandidateMetadataStore:
             raise CandidateMetadataError(f"{field} must include a timezone")
         return value
 
-    def _source(self, source_path: Path | None, source_sha256: str | None) -> tuple[Path | None, str | None]:
+    def _source(
+        self,
+        source_path: Path | None,
+        source_sha256: str | None,
+    ) -> tuple[Path | None, str | None]:
         if source_path is None:
             if source_sha256 is not None:
                 raise CandidateMetadataError("source_sha256 requires source_path")
@@ -249,6 +272,8 @@ class CandidateMetadataStore:
             raise CandidateMetadataError(f"unsupported metadata field: {field!r}")
         if source_kind not in ALLOWED_SOURCE_KINDS:
             raise CandidateMetadataError(f"unsupported metadata source kind: {source_kind!r}")
+        if source_kind == "operator-observation" and (source_path is not None or source_sha256 is not None):
+            raise CandidateMetadataError("operator observations cannot carry evidence file provenance")
         if field.endswith("_utc"):
             normalized_value = self._validate_timestamp(value, field=field)
         else:
@@ -303,30 +328,47 @@ class CandidateMetadataStore:
             confidence=confidence,
         )
         now = datetime.now(UTC).isoformat()
-        claim = MetadataClaim(
-            claim_id=str(uuid.uuid4()),
-            item_id=item_id,
-            artifact_sha256=sha,
-            field=field,
-            value=normalized[0],
-            source_kind=normalized[1],
-            source_path=normalized[2],
-            source_sha256=normalized[3],
-            evidence_pointer=normalized[4],
-            confidence=normalized[5],
-            created_utc=now,
-        )
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                """
+                SELECT * FROM claims
+                WHERE item_id=? AND artifact_sha256=? AND field=? AND value=?
+                  AND source_kind=? AND source_sha256 IS ?
+                """,
+                (
+                    item_id,
+                    sha,
+                    field,
+                    normalized[0],
+                    normalized[1],
+                    normalized[3],
+                ),
+            ).fetchone()
+            if existing is not None:
+                return self._claim(existing)
             count = conn.execute(
                 "SELECT COUNT(*) AS count FROM claims WHERE item_id=? AND artifact_sha256=?",
                 (item_id, sha),
             ).fetchone()["count"]
             if int(count) >= MAX_CLAIMS:
                 raise CandidateMetadataError(f"metadata claim limit of {MAX_CLAIMS} reached")
+            claim = MetadataClaim(
+                claim_id=str(uuid.uuid4()),
+                item_id=item_id,
+                artifact_sha256=sha,
+                field=field,
+                value=normalized[0],
+                source_kind=normalized[1],
+                source_path=normalized[2],
+                source_sha256=normalized[3],
+                evidence_pointer=normalized[4],
+                confidence=normalized[5],
+                created_utc=now,
+            )
             conn.execute(
                 """
-                INSERT OR REPLACE INTO claims(
+                INSERT INTO claims(
                     claim_id, item_id, artifact_sha256, field, value, source_kind,
                     source_path, source_sha256, evidence_pointer, confidence, created_utc
                 ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
