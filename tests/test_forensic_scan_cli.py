@@ -9,6 +9,8 @@ class _FakeReport:
     artifact = Path("candidate.mp4")
     profile = "standard"
     status = EvidenceStatus.REVIEW
+    sha256_before = "a" * 64
+    sha512_before = "b" * 128
     sha256_after = "a" * 64
     findings = ()
 
