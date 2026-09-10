@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 
-import pytest
-
 import vidrensic.cli_ext as cli_ext
 from vidrensic.cli_ext import main
 
