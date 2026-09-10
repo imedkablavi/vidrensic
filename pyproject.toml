@@ -44,6 +44,7 @@ Documentation = "https://github.com/imedkablavi/vidrensic/tree/main/docs"
 [project.scripts]
 vidrensic = "vidrensic.cli_ext:main"
 vidrensic-media = "vidrensic.media_cli:main"
+vidrensic-export = "vidrensic.export_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["vidrensic*"]
