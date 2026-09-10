@@ -40,12 +40,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--thumb-width", type=_positive_int, default=320, help="thumbnail width in pixels")
     parser.add_argument("--timeout", type=_positive_float, default=180.0, help="ffmpeg timeout in seconds")
     parser.add_argument("--case", type=Path)
-    parser.add_argument("--replace", action="store_true", help="reserved for future explicit replacement profiles")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-
-    if args.replace:
-        parser.error("--replace is not supported for derived contact sheets; choose a new output")
 
     case = Case.load(args.case) if args.case else None
     details = {
