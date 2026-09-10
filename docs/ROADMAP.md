@@ -151,16 +151,19 @@ Primary review UX target:
 - [x] seek watchdog/reload-position recovery
 - [x] initial local graphical workstation UI
 - [ ] recorder-native wall-clock/camera identity filtering
-- [ ] safe derived-copy deletion plans bound to file identity
-- [ ] deletion audit/tombstones
+- [x] safe derived-copy deletion plans bound to file identity
+- [x] deletion audit/tombstones
 - [ ] packaged desktop delivery
 
-Important UI boundaries:
+Important UI and cleanup boundaries:
 
 - review-update time is not recording wall-clock time;
 - matrix candidate slots are not stable physical camera identities without additional evidence;
 - contact-sheet cells are visual triage aids, not exact forensic frame identifiers;
-- playback recovery never rewrites a registered evidence artifact.
+- playback recovery never rewrites a registered evidence artifact;
+- deletion plans apply only to mutable `derived/` and `work/` files;
+- plan creation is non-destructive and execution requires explicit `--execute`;
+- a deletion target must still match its planned path, size and SHA-256 at execution time.
 
 ## Phase H - Unknown DVR/NVR profiler
 
