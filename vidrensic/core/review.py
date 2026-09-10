@@ -87,6 +87,13 @@ class ReviewStore:
         self.case_root = case_root.expanduser().resolve()
         self.audit = audit
         self.actor = actor
+        original = path.expanduser()
+        if original.is_symlink():
+            raise ValueError("review database may not be a symlink")
+        try:
+            self.path.relative_to(self.case_root)
+        except ValueError as exc:
+            raise ValueError("review database must be inside the case root") from exc
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
         os.chmod(self.path, PRIVATE_FILE_MODE)
@@ -215,6 +222,7 @@ class ReviewStore:
         now = self._now()
         item_id = str(uuid.uuid4())
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 "SELECT item_id FROM items WHERE artifact_path=? AND artifact_sha256=?",
                 (str(path), artifact_sha256.lower()),
@@ -292,6 +300,7 @@ class ReviewStore:
             raise ValueError("artifact SHA-256 does not match registered review item")
         now = self._now()
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             cursor = conn.execute(
                 "UPDATE items SET state=?, updated_utc=? WHERE item_id=? AND artifact_sha256=?",
                 (state.value, now, item_id, expected_sha256.lower()),
@@ -317,6 +326,7 @@ class ReviewStore:
             raise ValueError("artifact SHA-256 does not match registered review item")
         now = self._now()
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             cursor = conn.execute(
                 "UPDATE items SET note=?, updated_utc=? WHERE item_id=? AND artifact_sha256=?",
                 (note, now, item_id, expected_sha256.lower()),
@@ -354,6 +364,7 @@ class ReviewStore:
         bookmark_id = str(uuid.uuid4())
         now = self._now()
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             count = conn.execute(
                 "SELECT COUNT(*) AS count FROM bookmarks WHERE item_id=?",
                 (item_id,),
