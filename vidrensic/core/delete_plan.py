@@ -8,10 +8,12 @@ import os
 import uuid
 
 from vidrensic.core.hashing import forensic_hashes_stable
+from vidrensic.core.json_limits import BoundedJSONError, load_bounded_json
 from vidrensic.core.private_io import PRIVATE_FILE_MODE, atomic_write_private_json
 
 
 SCHEMA_VERSION = 1
+MAX_PLAN_BYTES = 2 * 1024 * 1024
 MAX_REASON_CHARS = 2048
 MAX_PLAN_ENTRIES = 256
 ALLOWED_ROOTS = ("derived", "work")
@@ -138,9 +140,16 @@ def _load_plan(path: Path, case_root: Path) -> DeletionPlan:
     if not resolved.is_file():
         raise DeletionPlanError("deletion plan must be a regular file")
     try:
-        data = json.loads(resolved.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
-        raise DeletionPlanError(f"unable to read deletion plan: {exc}") from exc
+        data = load_bounded_json(
+            resolved,
+            max_bytes=MAX_PLAN_BYTES,
+            max_depth=12,
+            max_nodes=50_000,
+            max_string_chars=64 * 1024,
+            label="deletion plan",
+        )
+    except BoundedJSONError as exc:
+        raise DeletionPlanError(str(exc)) from exc
     if not isinstance(data, dict) or data.get("schema_version") != SCHEMA_VERSION:
         raise DeletionPlanError("unsupported deletion plan schema")
     plan_root = Path(str(data.get("case_root", ""))).expanduser().resolve()
