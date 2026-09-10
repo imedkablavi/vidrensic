@@ -5,6 +5,7 @@ import pytest
 from vidrensic.core.case import Case
 from vidrensic.core.delete_plan import DeletionPlanError, create_deletion_plan, execute_deletion_plan
 from vidrensic.core.hashing import forensic_hashes_stable
+from vidrensic import review_cli
 
 
 def _case(tmp_path: Path) -> Case:
@@ -92,3 +93,39 @@ def test_execute_rejects_plan_that_targets_itself(tmp_path: Path) -> None:
 
     with pytest.raises(DeletionPlanError, match="may not delete itself"):
         execute_deletion_plan(case.root, plan_path)
+
+
+def test_execute_rejects_tombstone_overlap(tmp_path: Path) -> None:
+    case = _case(tmp_path)
+    target = case.root / "derived" / "review" / "proxy.mp4"
+    target.write_bytes(b"proxy")
+    plan = create_deletion_plan(case.root, [target], reason="overlap test")
+    plan_path = case.root / "work" / "delete-plan.json"
+    plan.write_json(plan_path)
+
+    with pytest.raises(DeletionPlanError, match="overlap"):
+        execute_deletion_plan(case.root, plan_path, tombstone_path=target)
+    assert target.exists()
+
+
+def test_cli_requires_explicit_execute_flag(tmp_path: Path, capsys) -> None:
+    case = _case(tmp_path)
+    target = case.root / "derived" / "review" / "proxy.mp4"
+    target.write_bytes(b"proxy")
+    plan = create_deletion_plan(case.root, [target], reason="explicit flag test")
+    plan_path = case.root / "work" / "delete-plan.json"
+    plan.write_json(plan_path)
+
+    result = review_cli.main(
+        [
+            "execute-deletion",
+            "--case",
+            str(case.root),
+            "--plan",
+            str(plan_path),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert result == 2
+    assert "--execute" in captured.err
+    assert target.exists()
