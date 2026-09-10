@@ -17,7 +17,10 @@ class ExportIntegrityError(RuntimeError):
 
 
 def _open_regular_source(path: Path) -> int:
-    resolved = path.expanduser().resolve(strict=True)
+    input_path = path.expanduser()
+    if input_path.is_symlink():
+        raise ValueError("source must be a regular non-symlink file")
+    resolved = input_path.resolve(strict=True)
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(resolved, flags)
     try:
@@ -31,8 +34,14 @@ def _open_regular_source(path: Path) -> int:
 
 
 def _copy_and_hash(source: Path, destination: Path) -> tuple[dict[str, str], int]:
-    source = source.expanduser().resolve(strict=True)
-    destination = destination.expanduser().resolve()
+    source_input = source.expanduser()
+    destination_input = destination.expanduser()
+    if source_input.is_symlink():
+        raise ValueError("source must be a regular non-symlink file")
+    if destination_input.is_symlink():
+        raise ValueError("destination must not be a symlink")
+    source = source_input.resolve(strict=True)
+    destination = destination_input.resolve()
     if source == destination:
         raise ValueError("source and destination must be different files")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -133,9 +142,17 @@ def export_evidence(
 
     if profile not in {"master", "review"}:
         raise ValueError("profile must be one of: master, review")
-    source = source.expanduser().resolve(strict=True)
-    destination = destination.expanduser().resolve()
-    if not source.is_file() or source.is_symlink():
+    source_input = source.expanduser()
+    destination_input = destination.expanduser()
+    if source_input.is_symlink():
+        raise ValueError("source must be a regular non-symlink file")
+    if destination_input.is_symlink():
+        raise ValueError("destination must not be a symlink")
+    source = source_input.resolve(strict=True)
+    destination = destination_input.resolve()
+    if source == destination:
+        raise ValueError("source and destination must be different files")
+    if not source.is_file():
         raise ValueError("source must be a regular non-symlink file")
     if destination.exists():
         if not replace:
