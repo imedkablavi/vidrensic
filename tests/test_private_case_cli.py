@@ -43,6 +43,8 @@ def test_private_case_cli_creates_restricted_manifest(tmp_path: Path, capsys) ->
     assert data["source"]["path"] == "evidence/recorder.raw"
     assert stat.S_IMODE(output.stat().st_mode) == 0o600
     stdout = capsys.readouterr().out
-    assert "manifest=" in stdout
-    assert "source_sha256=" in stdout
-    assert "source_size_bytes=" in stdout
+    assert "Validation case prepared" in stdout
+    assert "Source metadata secured" in stdout
+    assert "Family" in stdout
+    assert "manifest=" not in stdout
+    assert "source_sha256=" not in stdout
