@@ -262,8 +262,11 @@ def analyze_media_timeline(
 ) -> MediaTimelineReport:
     """Build a bounded keyframe/timing inventory from the first video stream."""
 
-    artifact = path.expanduser().resolve(strict=True)
-    if not artifact.is_file() or artifact.is_symlink():
+    input_path = path.expanduser()
+    if input_path.is_symlink():
+        raise ValueError("media artifact must be a regular non-symlink file")
+    artifact = input_path.resolve(strict=True)
+    if not artifact.is_file():
         raise ValueError("media artifact must be a regular non-symlink file")
 
     before_hashes = forensic_hashes_stable(artifact)
