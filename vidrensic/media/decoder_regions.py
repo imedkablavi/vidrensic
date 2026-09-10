@@ -157,8 +157,11 @@ def analyze_decoder_error_regions(
     if timeout_per_window <= 0:
         raise ValueError("timeout_per_window must be positive")
 
-    artifact = path.expanduser().resolve(strict=True)
-    if not artifact.is_file() or artifact.is_symlink():
+    input_path = path.expanduser()
+    if input_path.is_symlink():
+        raise ValueError("media artifact must be a regular non-symlink file")
+    artifact = input_path.resolve(strict=True)
+    if not artifact.is_file():
         raise ValueError("media artifact must be a regular non-symlink file")
 
     before_hashes = forensic_hashes_stable(artifact)
