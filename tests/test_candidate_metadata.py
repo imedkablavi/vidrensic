@@ -75,6 +75,7 @@ def test_metadata_round_trips_with_provenance(tmp_path: Path) -> None:
     metadata = case.candidate_metadata.get(item_id, item.artifact_sha256)
     assert metadata.values()["camera_slot"] == "04"
     assert metadata.to_dict()["evidence_backed"] is True
+    assert metadata.to_dict()["fields"]["camera_slot"]["evidence_backed"] is True
     assert metadata.claims[0].claim_id == claim.claim_id
     assert metadata.claims[0].source_sha256 == source_sha
     assert metadata.claims[0].evidence_pointer == "/camera_slot"
@@ -83,6 +84,17 @@ def test_metadata_round_trips_with_provenance(tmp_path: Path) -> None:
 def test_operator_observation_is_not_evidence_backed(tmp_path: Path) -> None:
     case, item_id = _case(tmp_path)
     item = case.review.get_item(item_id)
+
+    with pytest.raises(CandidateMetadataError, match="cannot carry evidence"):
+        case.candidate_metadata.set_claim(
+            item_id,
+            item.artifact_sha256,
+            field="camera_slot",
+            value="04",
+            source_kind="operator-observation",
+            source_path=case.root / "reports" / "native.json",
+            confidence=0.5,
+        )
 
     case.candidate_metadata.set_claim(
         item_id,
@@ -95,3 +107,4 @@ def test_operator_observation_is_not_evidence_backed(tmp_path: Path) -> None:
 
     metadata = case.candidate_metadata.get(item_id, item.artifact_sha256)
     assert metadata.to_dict()["evidence_backed"] is False
+    assert metadata.to_dict()["fields"]["camera_slot"]["evidence_backed"] is False
