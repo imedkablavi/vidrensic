@@ -73,12 +73,13 @@ def test_timeline_records_timing_anomalies(monkeypatch, tmp_path: Path) -> None:
     report = timeline.analyze_media_timeline(artifact)
 
     assert report.pts_non_monotonic == 1
-    assert report.dts_non_monotonic == 0
+    assert report.dts_non_monotonic == 1
     assert report.duplicate_pts == 1
     assert report.large_gaps == 1
     assert {item.kind for item in report.anomalies} == {
         "duplicate-pts",
         "pts-backwards",
+        "dts-backwards",
         "large-gap",
     }
     assert report.frame_rate_confidence == "Low"
