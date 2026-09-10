@@ -116,7 +116,7 @@ See `VALIDATION.md` and `VALIDATION_CORPUS.md`.
 - [x] duration confidence separate from nominal duration
 - [x] visual scene sampling/contact sheets
 - [x] duplicate/near-duplicate detection
-- [ ] remux-first repair workflow
+- [x] remux-first repair workflow
 - [ ] controlled transcode proxy workflow
 
 ## Phase G - Review workstation
