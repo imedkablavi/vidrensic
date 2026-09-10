@@ -49,10 +49,26 @@ class ReviewTimelineContract:
         return atomic_write_private_json(output, self.to_dict(), allow_replace=replace)
 
 
+def _case_report(case: Case, path: Path, *, label: str) -> Path:
+    candidate = path.expanduser()
+    if candidate.is_symlink():
+        raise ReviewTimelineError(f"{label} may not be a symlink")
+    try:
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(case.root)
+    except FileNotFoundError as exc:
+        raise ReviewTimelineError(f"{label} does not exist: {candidate}") from exc
+    except ValueError as exc:
+        raise ReviewTimelineError(f"{label} must be inside the case root") from exc
+    if not resolved.is_file():
+        raise ReviewTimelineError(f"{label} must be a regular file")
+    return resolved
+
+
 def _load_report(path: Path) -> dict[str, Any]:
     try:
         data = load_bounded_json(
-            path.expanduser(),
+            path,
             max_bytes=MAX_REPORT_BYTES,
             max_depth=MAX_DEPTH,
             max_nodes=MAX_NODES,
@@ -75,7 +91,7 @@ def _report_binding(path: Path, report: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(sha256, str) or len(sha256) != 64:
         raise ReviewTimelineError("media report contains an invalid SHA-256 binding")
     return {
-        "report_path": str(path.expanduser().resolve(strict=True)),
+        "report_path": str(path),
         "artifact": artifact,
         "artifact_sha256": sha256.lower(),
     }
@@ -120,7 +136,7 @@ def build_review_timeline(
     """Combine hash-bound media analysis and analyst review state into one UI contract."""
 
     item = case.review.get_item(item_id)
-    timeline_path = timeline_report_path.expanduser().resolve(strict=True)
+    timeline_path = _case_report(case, timeline_report_path, label="timeline report")
     timeline_report = _load_report(timeline_path)
     _same_artifact(item.artifact_sha256, timeline_report, label="timeline report")
     timeline_binding = _report_binding(timeline_path, timeline_report)
@@ -128,7 +144,7 @@ def build_review_timeline(
     decoder_payload: dict[str, Any] | None = None
     decoder_binding: dict[str, Any] | None = None
     if decoder_report_path is not None:
-        decoder_path = decoder_report_path.expanduser().resolve(strict=True)
+        decoder_path = _case_report(case, decoder_report_path, label="decoder report")
         decoder_report = _load_report(decoder_path)
         _same_artifact(item.artifact_sha256, decoder_report, label="decoder report")
         decoder_payload = _decoder_payload(decoder_report)
