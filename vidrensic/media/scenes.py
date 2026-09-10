@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 import math
 import os
+import subprocess
 
 from vidrensic.core.hashing import forensic_hashes_stable
 from vidrensic.core.private_io import PRIVATE_FILE_MODE, atomic_write_private_json
@@ -172,13 +173,21 @@ def create_contact_sheet(
         args.extend(["-compression_level", "6"])
     args.extend(["-f", muxer, str(destination)])
 
-    result = run_media_tool_bounded(
-        "ffmpeg",
-        args,
-        timeout=timeout,
-        stdout_limit=4096,
-        stderr_limit=64 * 1024,
-    )
+    try:
+        result = run_media_tool_bounded(
+            "ffmpeg",
+            args,
+            timeout=timeout,
+            stdout_limit=4096,
+            stderr_limit=64 * 1024,
+        )
+    except subprocess.TimeoutExpired as exc:
+        try:
+            destination.unlink()
+        except FileNotFoundError:
+            pass
+        raise SceneSamplingError(f"contact-sheet generation timed out after {timeout} seconds") from exc
+
     if result.returncode != 0:
         try:
             destination.unlink()
