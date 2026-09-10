@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 import sys
 
+from vidrensic.core.case import Case
 from vidrensic.media.inventory import inspect_media
 
 
@@ -44,8 +45,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-duration", type=_seconds)
     parser.add_argument("--timeout", type=_seconds)
     parser.add_argument("--replace", action="store_true")
+    parser.add_argument("--case", type=Path)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+
+    case = Case.load(args.case) if args.case else None
+    details = {
+        "source": str(args.source),
+        "output": str(args.out),
+        "qc": args.qc,
+        "expected_duration": args.expected_duration,
+        "timeout": args.timeout,
+    }
+    job = None
+    if case:
+        job = case.jobs.create("media.inventory", details)
+        case.jobs.start(job.job_id)
+        case.audit.append("media.inventory.started", {**details, "job_id": job.job_id}, actor=case.examiner)
 
     try:
         report = inspect_media(
@@ -56,8 +72,41 @@ def main(argv: list[str] | None = None) -> int:
         )
         output = report.write_json(args.out, replace=args.replace)
     except (OSError, RuntimeError, ValueError) as exc:
+        if case and job:
+            case.jobs.fail(job.job_id, f"{type(exc).__name__}: {exc}")
+            case.audit.append(
+                "media.inventory.failed",
+                {**details, "job_id": job.job_id, "error": f"{type(exc).__name__}: {exc}"},
+                actor=case.examiner,
+            )
         print(f"Unable to inspect media: {exc}", file=sys.stderr)
         return 2
+
+    if case and job:
+        case.jobs.checkpoint(
+            job.job_id,
+            {
+                "report": str(output),
+                "sha256": report.sha256,
+                "sha512": report.sha512,
+                "size_bytes": report.size_bytes,
+                "qc_status": None if report.qc is None else report.qc["status"],
+            },
+        )
+        case.jobs.complete(job.job_id)
+        case.audit.append(
+            "media.inventory.finished",
+            {
+                **details,
+                "job_id": job.job_id,
+                "report": str(output),
+                "sha256": report.sha256,
+                "sha512": report.sha512,
+                "size_bytes": report.size_bytes,
+                "qc_status": None if report.qc is None else report.qc["status"],
+            },
+            actor=case.examiner,
+        )
 
     if args.json:
         print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
