@@ -51,8 +51,6 @@ def _timeline_exit_code(report) -> int:
         return 3
     if report.pts_non_monotonic or report.dts_non_monotonic or report.duplicate_pts or report.large_gaps:
         return 3
-    if report.duration_confidence == "Low":
-        return 3
     return 0
 
 
