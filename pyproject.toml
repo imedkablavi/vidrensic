@@ -50,6 +50,7 @@ vidrensic-scenes = "vidrensic.scene_cli:main"
 vidrensic-duplicates = "vidrensic.duplicate_cli:main"
 vidrensic-repair = "vidrensic.repair_cli:main"
 vidrensic-proxy = "vidrensic.proxy_cli:main"
+vidrensic-review = "vidrensic.review_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["vidrensic*"]
