@@ -8,7 +8,7 @@ import webbrowser
 
 from vidrensic.core.case import Case
 from vidrensic.review_server import LOOPBACK_HOSTS, serve_review_workstation
-from vidrensic.review_ui_v3 import REVIEW_WORKSTATION_HTML
+from vidrensic.review_ui_v4 import REVIEW_WORKSTATION_HTML
 
 
 def _port(value: str) -> int:
@@ -38,7 +38,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.host.strip() not in LOOPBACK_HOSTS and not args.allow_network:
             parser.error("non-loopback review server requires --allow-network")
         if args.open_browser:
-            # Start the server in this process, then ask the browser to open the fixed local URL.
             def open_browser() -> None:
                 webbrowser.open(f"http://{args.host}:{args.port}/")
 
