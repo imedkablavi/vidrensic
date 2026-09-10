@@ -8,38 +8,40 @@ vidrensic-review-ui --case <case>
 
 The default listener is loopback-only at `127.0.0.1:8765`. A non-loopback bind requires the explicit `--allow-network` flag.
 
-## Current capabilities
+## Candidate list and filters
 
-The UI provides a master/detail review layout with:
+The left panel provides REVIEW/KEEP/DISCARD state filters, free-text search across artifact path/kind/note, and UTC date/hour filters based on `ReviewItem.updated_utc`.
 
-- review-item search and REVIEW/KEEP/DISCARD filtering;
-- sticky video player;
-- HTTP Range media delivery for seeking in the browser;
-- ±1s, ±5s and ±30s navigation;
-- frame-step controls;
-- playback speeds from 0.25× through 8×;
-- timeline progress and bookmark markers;
-- timing/QC badges from the normalized review timeline contract;
-- KEEP/REVIEW/DISCARD actions;
-- analyst notes;
-- timestamp bookmarks.
+The date/hour controls are deliberately described as **review-update time**. Recording wall-clock time is not inferred because it is not part of the current `ReviewItem` contract.
 
-Media is served by review-item ID rather than an arbitrary filesystem path. Before a media request is served, the server checks the artifact remains a regular file inside the case and verifies its SHA-256 against the registered review item. A changed artifact is rejected from playback.
+Each candidate has a matrix-selection checkbox. The matrix is limited to four candidates and displays them as candidate slots; it does not assert that a slot is a stable physical camera identity.
 
-Mutations are sent to the existing `Case.review` API, preserving the artifact SHA-256 binding and audit trail.
+## Player and recovery
 
-## Timeline discovery
+The player provides HTTP Range-backed browser seeking, ±1s/±5s/±30s navigation, frame stepping, playback speeds from 0.25× through 8×, timeline seeking, and bookmark markers.
 
-When a normalized review timeline contract is already present in `reports/`, the UI loads it directly. Otherwise the server can build a contract from matching timeline/decoder reports whose SHA-256 matches the review item.
+When browser playback emits `stalled` or `error`, the workstation retries the same review item up to two times and restores the last known position. The recovery path never rewrites the registered artifact.
 
-Report discovery is bounded by file count and total bytes. Reports outside the case or symlinked reports are ignored/rejected.
+## Synchronized matrix
+
+Selected candidates can be opened in a four-slot matrix. Starting playback in one slot aligns the current time of the other slots. This is a comparative review convenience, not evidence that all slots share a physical camera or synchronized clock.
+
+## Contact sheet
+
+The workstation samples twelve evenly spaced timestamps from the selected review media and renders them into an in-browser contact sheet. These cells are **visual triage aids**, not exact forensic frame identifiers and not a replacement for hash-bound timeline evidence.
+
+## Evidence boundaries
+
+Review decisions, notes and bookmarks are persisted through `Case.review` and remain separate from evidence bytes. Timeline and decoder reports presented by the workstation remain hash-bound to the registered artifact.
+
+Media requests are made by review-item ID. The server validates that the artifact is still a regular file inside the case and that its SHA-256 matches the registered review item before serving it.
 
 ## Security posture
 
-The workstation is intentionally local-first. It does not expose a network listener unless the operator explicitly opts into a non-loopback bind. Browser origins are checked for same-origin requests, response content is marked `nosniff`, and an inline Content Security Policy restricts the UI to same-origin resources.
+The workstation is intentionally local-first. It does not expose a network listener unless the operator explicitly opts into a non-loopback bind. Browser origins are checked for same-origin requests, response content is marked `nosniff`, and the UI uses a restrictive same-origin Content Security Policy.
 
-This server is a review workstation convenience layer, not a hardened internet-facing web server. Do not expose it to untrusted networks.
+This server is a review-workstation convenience layer, not a hardened internet-facing web server. Do not expose it to untrusted networks.
 
 ## Remaining workstation work
 
-The initial UI does not yet provide synchronized multi-camera playback, hour/date filters, deletion plans/tombstones, or a fully packaged desktop application. Those remain separate engineering milestones.
+The current UI still does not provide forensic deletion plans/tombstones, packaged desktop delivery, or recorder-native wall-clock/camera identity guarantees. Those require additional evidence models rather than UI-only assumptions.
