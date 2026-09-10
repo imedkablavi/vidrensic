@@ -9,6 +9,8 @@ class _FakeReport:
     artifact = Path("candidate.mp4")
     profile = "standard"
     status = EvidenceStatus.REVIEW
+    confidence_level = "Moderate"
+    evidence_intervals = ()
     sha256_before = "a" * 64
     sha512_before = "b" * 128
     sha256_after = "a" * 64
@@ -35,6 +37,8 @@ def test_forensic_scan_cli_returns_review_exit_code(monkeypatch, capsys, tmp_pat
     text = capsys.readouterr().out
     assert "Forensic media scan complete" in text
     assert "Verdict      REVIEW" in text
+    assert "Confidence   Moderate" in text
+    assert "Intervals    0" in text
 
 
 def test_forensic_scan_cli_json_emits_machine_readable_status(monkeypatch, capsys, tmp_path: Path) -> None:
