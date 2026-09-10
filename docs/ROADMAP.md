@@ -111,7 +111,7 @@ See `VALIDATION.md` and `VALIDATION_CORPUS.md`.
 - [x] fast/full decode QC foundations
 - [x] keyframe index
 - [x] PTS/DTS anomaly map
-- [ ] decoder error regions
+- [x] decoder error regions
 - [x] frame-rate inference with confidence
 - [ ] duration confidence separate from nominal duration
 - [ ] visual scene sampling/contact sheets
@@ -216,8 +216,8 @@ No family is promoted from a research target merely because its name or signatur
 - [ ] performance and file-descriptor stress tests
 - [ ] packaged Linux application/workstation
 - [ ] signed release artifacts
-- [x] reproducible build qualification in CI
-- [x] SBOM generation qualification in CI
+- [ ] reproducible build documentation
+- [ ] SBOM generation
 - [ ] dependency/license inventory
 - [ ] security threat model
 - [ ] validation handbook and operator SOP
