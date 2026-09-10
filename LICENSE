@@ -60,35 +60,52 @@ Vidrensic can invoke or interoperate with third-party software including GNU
 ddrescue and FFmpeg/ffprobe. Those programs are not relicensed by this document.
 Their own licenses and distribution requirements continue to apply.
 
-7. CONFIDENTIALITY
+7. BRAND ASSETS AND IDENTIFIERS
+
+The names "Vidrensic" and "VIDRENSIC", the project wordmark, logos, symbols,
+visual identity assets, distinctive interface branding, and related artwork are
+project identifiers owned by the copyright holder or used under applicable
+third-party rights. They are not granted under this Software license.
+
+A person may make truthful, non-misleading textual references to the project for
+compatibility, citation, research, criticism, or factual identification, but may
+not imply endorsement, sponsorship, partnership, certification, or official
+association without written permission. Reuse of the official logos, wordmark,
+or distinctive branded artwork requires separate written permission unless an
+asset-specific notice states otherwise.
+
+Nothing in this section asserts that a particular project identifier is a
+registered trademark in any jurisdiction.
+
+8. CONFIDENTIALITY
 
 Private repository contents, unreleased recovery profiles, sample evidence,
 customer cases, proprietary format research, and internal validation data should
 be treated as confidential unless the copyright holder explicitly authorizes
 disclosure.
 
-8. TERMINATION
+9. TERMINATION
 
 Any authorization to use the Software terminates automatically when its stated
 term expires or when a material license restriction is breached, subject to any
 contrary terms in a separate written agreement. Upon termination, the user must
 cease unauthorized use and distribution.
 
-9. DISCLAIMER
+10. DISCLAIMER
 
 TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED
 WITHOUT ANY WARRANTY, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF
 MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, ACCURACY, NON-INFRINGEMENT,
 OR FITNESS FOR EVIDENTIARY USE.
 
-10. LIMITATION OF LIABILITY
+11. LIMITATION OF LIABILITY
 
 TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COPYRIGHT HOLDER WILL NOT
 BE LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR EXEMPLARY DAMAGES,
 OR FOR LOSS OF DATA, EVIDENCE, PROFITS, OR BUSINESS ARISING FROM USE OF THE
 SOFTWARE, EXCEPT WHERE LIABILITY CANNOT LAWFULLY BE EXCLUDED.
 
-11. RESERVATION OF RIGHTS
+12. RESERVATION OF RIGHTS
 
 All rights not expressly granted are reserved by the copyright holder.
 
