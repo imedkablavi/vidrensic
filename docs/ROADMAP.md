@@ -106,13 +106,13 @@ See `VALIDATION.md` and `VALIDATION_CORPUS.md`.
 
 ## Phase F - Media validation engine
 
-- [ ] native stream inventory persistence
+- [x] native stream inventory persistence
 - [x] ffprobe probing foundation
 - [x] fast/full decode QC foundations
-- [ ] keyframe index
-- [ ] PTS/DTS anomaly map
+- [x] keyframe index
+- [x] PTS/DTS anomaly map
 - [ ] decoder error regions
-- [ ] frame-rate inference with confidence
+- [x] frame-rate inference with confidence
 - [ ] duration confidence separate from nominal duration
 - [ ] visual scene sampling/contact sheets
 - [ ] duplicate/near-duplicate detection
@@ -159,7 +159,7 @@ Primary review UX target:
 - [x] ranked format-family detection
 - [x] WFS fragment-alignment hypotheses
 - [ ] absolute proprietary data-area discovery with corroborating evidence
-- [ ] anonymized profiler bundle format
+- [x] anonymized profiler bundle format
 - [ ] profile/plugin SDK documentation
 
 The profiler must never silently upload evidence.
@@ -172,7 +172,7 @@ The profiler must never silently upload evidence.
 - [ ] Stream / Stream_db
 - [ ] TangoMagic
 - [ ] additional DHFS/DHAV variants
-- [ ] TDFS/BJPEG/JDAT/Milefs and other field-observed families
+- [ ] TDFS/BJPEG/JDAT and other field-observed families
 
 No family is promoted from a research target merely because its name or signature is known.
 
@@ -198,9 +198,9 @@ No family is promoted from a research target merely because its name or signatur
 
 ## Phase L - Evidence export & reporting
 
-- [ ] forensic-master export profile
-- [ ] review-copy export profile
-- [ ] hashes for every exported artifact
+- [x] forensic-master export profile
+- [x] review-copy export profile
+- [x] hashes for every exported artifact
 - [ ] provenance graph
 - [ ] signed manifest option
 - [ ] HTML/PDF technical reports
@@ -216,8 +216,8 @@ No family is promoted from a research target merely because its name or signatur
 - [ ] performance and file-descriptor stress tests
 - [ ] packaged Linux application/workstation
 - [ ] signed release artifacts
-- [ ] reproducible build documentation
-- [ ] SBOM generation
+- [x] reproducible build qualification in CI
+- [x] SBOM generation qualification in CI
 - [ ] dependency/license inventory
 - [ ] security threat model
 - [ ] validation handbook and operator SOP
