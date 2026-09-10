@@ -48,6 +48,9 @@ class MediaTimelineReport:
     sha256: str
     sha512: str | None
     duration_seconds: float | None
+    observed_duration_seconds: float | None
+    duration_delta_seconds: float | None
+    duration_confidence: str
     frame_count: int
     keyframe_count: int
     keyframes: tuple[float, ...]
@@ -71,6 +74,9 @@ class MediaTimelineReport:
             },
             "timeline": {
                 "duration_seconds": self.duration_seconds,
+                "observed_duration_seconds": self.observed_duration_seconds,
+                "duration_delta_seconds": self.duration_delta_seconds,
+                "duration_confidence": self.duration_confidence,
                 "frame_count": self.frame_count,
                 "keyframe_count": self.keyframe_count,
                 "keyframes_seconds": list(self.keyframes),
@@ -255,6 +261,33 @@ def _frame_rate_confidence(intervals: list[float], *, truncated: bool, anomalies
     return "Low"
 
 
+def _duration_assessment(
+    nominal: float | None,
+    first_pts: float | None,
+    last_pts: float | None,
+    frame_durations: list[float],
+    *,
+    frame_count: int,
+    truncated: bool,
+    anomalies: int,
+) -> tuple[float | None, float | None, str]:
+    if nominal is None or nominal <= 0 or first_pts is None or last_pts is None or last_pts < first_pts:
+        return None, None, "Low"
+    observed = last_pts - first_pts
+    positive_durations = [item for item in frame_durations if item > 0]
+    if positive_durations:
+        observed += median(positive_durations)
+    delta = observed - nominal
+    relative = abs(delta) / max(nominal, 1e-9)
+    if frame_count < 5 or truncated:
+        return observed, delta, "Low"
+    if anomalies == 0 and relative < 0.01:
+        return observed, delta, "High"
+    if relative < 0.05:
+        return observed, delta, "Moderate"
+    return observed, delta, "Low"
+
+
 def analyze_media_timeline(
     path: Path,
     *,
@@ -276,22 +309,33 @@ def analyze_media_timeline(
     keyframe_count = 0
     keyframes: list[float] = []
     intervals: list[tuple[int, float]] = []
+    frame_durations: list[float] = []
     anomalies: list[TimelineAnomaly] = []
     pts_non_monotonic = 0
     dts_non_monotonic = 0
     duplicate_pts = 0
     large_gaps = 0
     previous_pts: float | None = None
+    first_pts: float | None = None
+    last_pts: float | None = None
     previous_dts: float | None = None
     truncated = False
 
     stream = _run_frame_probe(artifact, timeout=timeout)
     try:
-        for pts, dts, keyframe, _duration in stream:
+        for pts, dts, keyframe, duration in stream:
             if frame_count >= MAX_FRAME_RECORDS:
                 truncated = True
                 break
             frame_count += 1
+
+            if duration is not None and duration > 0 and len(frame_durations) < MAX_FRAME_RECORDS:
+                frame_durations.append(duration)
+
+            if pts is not None:
+                if first_pts is None:
+                    first_pts = pts
+                last_pts = pts
 
             if keyframe:
                 keyframe_count += 1
@@ -342,17 +386,30 @@ def analyze_media_timeline(
     else:
         inferred_rate = None
 
+    total_anomalies = pts_non_monotonic + dts_non_monotonic + duplicate_pts + large_gaps
+    observed_duration, duration_delta, duration_confidence = _duration_assessment(
+        probe.duration,
+        first_pts,
+        last_pts,
+        frame_durations,
+        frame_count=frame_count,
+        truncated=truncated,
+        anomalies=total_anomalies,
+    )
+
     after_hashes = forensic_hashes_stable(artifact)
     if before_hashes.sha256 != after_hashes.sha256 or before_hashes.sha512 != after_hashes.sha512:
         raise TimelineAnalysisError("media artifact changed during timeline analysis")
 
-    total_anomalies = pts_non_monotonic + dts_non_monotonic + duplicate_pts + large_gaps
     return MediaTimelineReport(
         artifact=artifact,
         size_bytes=artifact.stat().st_size,
         sha256=after_hashes.sha256,
         sha512=after_hashes.sha512,
         duration_seconds=probe.duration,
+        observed_duration_seconds=observed_duration,
+        duration_delta_seconds=duration_delta,
+        duration_confidence=duration_confidence,
         frame_count=frame_count,
         keyframe_count=keyframe_count,
         keyframes=tuple(keyframes),
