@@ -113,7 +113,7 @@ See `VALIDATION.md` and `VALIDATION_CORPUS.md`.
 - [x] PTS/DTS anomaly map
 - [x] decoder error regions
 - [x] frame-rate inference with confidence
-- [ ] duration confidence separate from nominal duration
+- [x] duration confidence separate from nominal duration
 - [ ] visual scene sampling/contact sheets
 - [ ] duplicate/near-duplicate detection
 - [ ] remux-first repair workflow
