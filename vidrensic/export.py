@@ -3,7 +3,6 @@ from __future__ import annotations
 from hashlib import sha256, sha512
 from pathlib import Path
 from typing import Any
-import json
 import os
 import stat
 
@@ -152,7 +151,6 @@ def export_evidence(
             pass
         raise ExportIntegrityError("export verification failed; destination hash does not match source bytes")
 
-    source_stat = source.stat()
     output_stat = destination.stat()
     if output_stat.st_size != copied_bytes:
         raise ExportIntegrityError("export verification failed; destination size differs from source")
@@ -167,7 +165,7 @@ def export_evidence(
         },
         "source": {
             "path": str(source),
-            "size_bytes": source_stat.st_size,
+            "size_bytes": copied_bytes,
             "sha256": copied_hashes["sha256"],
             "sha512": copied_hashes["sha512"],
         },
