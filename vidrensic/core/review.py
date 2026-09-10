@@ -38,6 +38,19 @@ class ReviewItem:
     created_utc: str
     updated_utc: str
 
+    def to_dict(self) -> dict:
+        return {
+            "item_id": self.item_id,
+            "artifact": str(self.artifact),
+            "artifact_sha256": self.artifact_sha256,
+            "kind": self.kind,
+            "duration_seconds": self.duration_seconds,
+            "state": self.state.value,
+            "note": self.note,
+            "created_utc": self.created_utc,
+            "updated_utc": self.updated_utc,
+        }
+
 
 @dataclass(frozen=True)
 class ReviewBookmark:
@@ -47,6 +60,16 @@ class ReviewBookmark:
     label: str
     note: str
     created_utc: str
+
+    def to_dict(self) -> dict:
+        return {
+            "bookmark_id": self.bookmark_id,
+            "item_id": self.item_id,
+            "timestamp_seconds": self.timestamp_seconds,
+            "label": self.label,
+            "note": self.note,
+            "created_utc": self.created_utc,
+        }
 
 
 class ReviewStore:
@@ -151,6 +174,18 @@ class ReviewStore:
             raise ValueError(f"{field} exceeds {limit} characters")
 
     @staticmethod
+    def _validate_finite_nonnegative(value: float | int, *, field: str) -> float:
+        if isinstance(value, bool):
+            raise ValueError(f"{field} must be a finite non-negative number")
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{field} must be a finite non-negative number") from exc
+        if not math.isfinite(numeric) or numeric < 0:
+            raise ValueError(f"{field} must be a finite non-negative number")
+        return numeric
+
+    @staticmethod
     def _now() -> str:
         return datetime.now(UTC).isoformat()
 
@@ -168,12 +203,15 @@ class ReviewStore:
         self._validate_sha256(artifact_sha256)
         self._validate_text(kind, field="kind", limit=MAX_LABEL_CHARS)
         self._validate_text(note, field="note", limit=MAX_NOTE_CHARS)
-        if duration_seconds is not None and (
-            not isinstance(duration_seconds, (int, float))
-            or not math.isfinite(float(duration_seconds))
-            or float(duration_seconds) < 0
-        ):
-            raise ValueError("duration_seconds must be a finite non-negative number")
+        normalized_duration = (
+            None
+            if duration_seconds is None
+            else self._validate_finite_nonnegative(duration_seconds, field="duration_seconds")
+        )
+        try:
+            state = ReviewState(state)
+        except ValueError as exc:
+            raise ValueError(f"invalid review state: {state!r}") from exc
         now = self._now()
         item_id = str(uuid.uuid4())
         with self._connect() as conn:
@@ -195,7 +233,7 @@ class ReviewStore:
                     str(path),
                     artifact_sha256.lower(),
                     kind,
-                    duration_seconds,
+                    normalized_duration,
                     state.value,
                     note,
                     now,
@@ -230,6 +268,10 @@ class ReviewStore:
             query = "SELECT * FROM items ORDER BY updated_utc DESC LIMIT ?"
             values = (limit,)
         else:
+            try:
+                state = ReviewState(state)
+            except ValueError as exc:
+                raise ValueError(f"invalid review state: {state!r}") from exc
             query = "SELECT * FROM items WHERE state=? ORDER BY updated_utc DESC LIMIT ?"
             values = (state.value, limit)
         with self._connect() as conn:
@@ -238,6 +280,10 @@ class ReviewStore:
 
     def set_state(self, item_id: str, *, state: ReviewState, expected_sha256: str) -> ReviewItem:
         self._validate_sha256(expected_sha256)
+        try:
+            state = ReviewState(state)
+        except ValueError as exc:
+            raise ValueError(f"invalid review state: {state!r}") from exc
         current = self.get_item(item_id)
         if current.artifact_sha256 != expected_sha256.lower():
             raise ValueError("artifact SHA-256 does not match registered review item")
@@ -293,16 +339,14 @@ class ReviewStore:
         self._validate_sha256(expected_sha256)
         self._validate_text(label, field="label", limit=MAX_LABEL_CHARS)
         self._validate_text(note, field="note", limit=MAX_NOTE_CHARS)
-        if (
-            not isinstance(timestamp_seconds, (int, float))
-            or not math.isfinite(float(timestamp_seconds))
-            or float(timestamp_seconds) < 0
-        ):
-            raise ValueError("timestamp_seconds must be a finite non-negative number")
+        timestamp = self._validate_finite_nonnegative(
+            timestamp_seconds,
+            field="timestamp_seconds",
+        )
         item = self.get_item(item_id)
         if item.artifact_sha256 != expected_sha256.lower():
             raise ValueError("artifact SHA-256 does not match registered review item")
-        if item.duration_seconds is not None and timestamp_seconds > item.duration_seconds:
+        if item.duration_seconds is not None and timestamp > item.duration_seconds:
             raise ValueError("bookmark timestamp exceeds registered media duration")
         bookmark_id = str(uuid.uuid4())
         now = self._now()
@@ -313,7 +357,7 @@ class ReviewStore:
                     bookmark_id, item_id, timestamp_seconds, label, note, created_utc
                 ) VALUES(?, ?, ?, ?, ?, ?)
                 """,
-                (bookmark_id, item_id, timestamp_seconds, label, note, now),
+                (bookmark_id, item_id, timestamp, label, note, now),
             )
         bookmark = self.get_bookmark(bookmark_id)
         self._audit(
