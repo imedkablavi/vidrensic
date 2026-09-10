@@ -9,6 +9,7 @@ import re
 import uuid
 
 from vidrensic.core.audit import AuditLog
+from vidrensic.core.candidate_metadata import CandidateMetadataStore
 from vidrensic.core.jobs import JobStore
 from vidrensic.core.json_limits import BoundedJSONError, load_bounded_json
 from vidrensic.core.review import ReviewStore
@@ -43,6 +44,15 @@ class Case:
     def review(self) -> ReviewStore:
         return ReviewStore(
             self.root / "state" / "review.sqlite3",
+            case_root=self.root,
+            audit=self.audit,
+            actor=self.examiner,
+        )
+
+    @property
+    def candidate_metadata(self) -> CandidateMetadataStore:
+        return CandidateMetadataStore(
+            self.root / "state" / "candidate_metadata.sqlite3",
             case_root=self.root,
             audit=self.audit,
             actor=self.examiner,
@@ -100,9 +110,11 @@ class Case:
             examiner=examiner,
         )
         obj._write_metadata()
-        # Initialize job DB immediately so schema failures are discovered while
-        # creating the case, not during a later long-running operation.
+        # Initialize job/review/metadata DBs immediately so schema failures are
+        # discovered while creating the case, not during a later long-running operation.
         _ = obj.jobs
+        _ = obj.review
+        _ = obj.candidate_metadata
         obj.audit.append(
             "case.created",
             {
