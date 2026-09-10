@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+import math
 import os
 import sqlite3
 import uuid
@@ -167,7 +168,11 @@ class ReviewStore:
         self._validate_sha256(artifact_sha256)
         self._validate_text(kind, field="kind", limit=MAX_LABEL_CHARS)
         self._validate_text(note, field="note", limit=MAX_NOTE_CHARS)
-        if duration_seconds is not None and (duration_seconds < 0 or not float(duration_seconds) == duration_seconds):
+        if duration_seconds is not None and (
+            not isinstance(duration_seconds, (int, float))
+            or not math.isfinite(float(duration_seconds))
+            or float(duration_seconds) < 0
+        ):
             raise ValueError("duration_seconds must be a finite non-negative number")
         now = self._now()
         item_id = str(uuid.uuid4())
@@ -288,7 +293,11 @@ class ReviewStore:
         self._validate_sha256(expected_sha256)
         self._validate_text(label, field="label", limit=MAX_LABEL_CHARS)
         self._validate_text(note, field="note", limit=MAX_NOTE_CHARS)
-        if timestamp_seconds < 0 or not float(timestamp_seconds) == timestamp_seconds:
+        if (
+            not isinstance(timestamp_seconds, (int, float))
+            or not math.isfinite(float(timestamp_seconds))
+            or float(timestamp_seconds) < 0
+        ):
             raise ValueError("timestamp_seconds must be a finite non-negative number")
         item = self.get_item(item_id)
         if item.artifact_sha256 != expected_sha256.lower():
