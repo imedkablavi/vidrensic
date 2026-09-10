@@ -13,6 +13,7 @@ PRODUCT_COMMANDS = (
     ("vidrensic-media <artifact> --out <report>", "Inspect recovered video"),
     ("vidrensic-media <artifact> --out <report> --timeline", "Review video timing"),
     ("vidrensic-export <artifact> --out <copy> --manifest <report>", "Create a verified copy"),
+    ("vidrensic-profiler <source> --out <bundle>", "Prepare a support bundle"),
     ("vidrensic doctor", "Check system readiness"),
 )
 
@@ -20,6 +21,7 @@ ADVANCED_COMMANDS = (
     "vidrensic analyze <source> --out <report>",
     "vidrensic-media <artifact> --out <report> [--timeline] [--qc fast|full]",
     "vidrensic-export <artifact> --out <copy> --manifest <report>",
+    "vidrensic-profiler <source> --out <bundle> [--json]",
     "vidrensic acquire verify <source> --output <image> --map <map> --receipt <report>",
     "vidrensic recover wfs <source> --starts <n,...> --stop-fragment <n> --out <dir> --label <name>",
     "vidrensic validate corpus <manifest> --out <report>",
