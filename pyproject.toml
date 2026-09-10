@@ -17,7 +17,7 @@ classifiers = [
   "Environment :: Console",
   "Intended Audience :: Information Technology",
   "Operating System :: POSIX :: Linux",
-  "Programming Language :: Python :: 3",
+  "Programming Language :: Python",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -48,6 +48,7 @@ vidrensic-export = "vidrensic.export_cli:main"
 vidrensic-profiler = "vidrensic.profiler_cli:main"
 vidrensic-scenes = "vidrensic.scene_cli:main"
 vidrensic-duplicates = "vidrensic.duplicate_cli:main"
+vidrensic-repair = "vidrensic.repair_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["vidrensic*"]
