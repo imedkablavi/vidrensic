@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Vidrensic social card</title>
+  <desc id="desc">Vidrensic forensic-first DVR/NVR evidence reconstruction platform.</desc>
+  <defs>
+    <linearGradient id="signal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+    <linearGradient id="analysis" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38BDF8"/>
+      <stop offset="1" stop-color="#6366F1"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" rx="36" fill="#07111C"/>
+  <circle cx="1000" cy="110" r="260" fill="#0D1B2A" opacity=".7"/>
+  <path d="M0 560h1200" stroke="#22D3EE" stroke-opacity=".15"/>
+  <g transform="translate(94 100)">
+    <rect width="300" height="300" rx="72" fill="#0D1B2A" stroke="#22D3EE" stroke-opacity=".35" stroke-width="3"/>
+    <path d="M150 40 240 73v80c0 65-39 111-90 141-51-30-90-76-90-141V73l90-33Z" fill="#07111C" stroke="url(#signal)" stroke-width="11"/>
+    <path d="M100 126 150 228 200 126" fill="none" stroke="url(#analysis)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="150" cy="145" r="34" fill="#07111C" stroke="#22D3EE" stroke-width="7"/>
+    <path d="m140 127 29 18-29 18Z" fill="#F8FAFC"/>
+    <circle cx="85" cy="207" r="7" fill="#34D399"/>
+    <circle cx="215" cy="207" r="7" fill="#34D399"/>
+  </g>
+  <g transform="translate(470 148)" font-family="Inter,Segoe UI,Arial,sans-serif">
+    <text x="0" y="90" fill="#F8FAFC" font-size="86" font-weight="800" letter-spacing="8">VIDRENSIC</text>
+    <rect x="2" y="118" width="620" height="5" rx="2.5" fill="url(#analysis)"/>
+    <text x="0" y="175" fill="#A5F3FC" font-size="28" font-weight="600">Forensic-first DVR / NVR evidence reconstruction</text>
+    <text x="0" y="218" fill="#94A3B8" font-size="20" font-weight="500">Acquire · Triage · Detect · Reconstruct · Validate · Audit</text>
+    <g transform="translate(0 274)" font-size="18" font-weight="700">
+      <text x="0" y="0" fill="#34D399">READ-ONLY FIRST</text>
+      <text x="190" y="0" fill="#22D3EE">AUDITABLE EVIDENCE</text>
+      <text x="420" y="0" fill="#6366F1">CONSERVATIVE VERDICTS</text>
+    </g>
+  </g>
+</svg>
