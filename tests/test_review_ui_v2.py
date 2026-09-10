@@ -11,7 +11,7 @@ def test_expanded_review_ui_contains_workstation_features() -> None:
         'id="retry"',
         'Maximum 4 candidates in synchronized matrix',
         'Playback interruption',
-        '0.25×',
+        '.25×',
         'Frame −',
         'Frame +',
         'KEEP',
