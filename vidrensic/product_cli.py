@@ -11,6 +11,7 @@ from vidrensic.ui import heading, label
 PRODUCT_COMMANDS = (
     ("vidrensic analyze <source> --out <report>", "Analyze a recorder source"),
     ("vidrensic-media <artifact> --out <report>", "Inspect recovered video"),
+    ("vidrensic-forensic-scan <artifact> --out <report>", "Run composite forensic media scan"),
     ("vidrensic-media <artifact> --out <report> --timeline", "Review video timing"),
     ("vidrensic-media <artifact> --out <report> --decoder-errors", "Map decoder-error regions"),
     ("vidrensic-scenes <artifact> --out <sheet.png>", "Create visual contact sheet"),
@@ -29,6 +30,7 @@ PRODUCT_COMMANDS = (
 ADVANCED_COMMANDS = (
     "vidrensic analyze <source> --out <report>",
     "vidrensic-media <artifact> --out <report> [--timeline] [--decoder-errors] [--qc fast|full]",
+    "vidrensic-forensic-scan <artifact> --out <report> [--profile quick|standard|deep] [--decoder-errors]",
     "vidrensic-scenes <artifact> --out <sheet.png> [--samples 24] [--thumb-width 320]",
     "vidrensic-duplicates <source>... --out <report> [--samples 32] [--threshold 0.90]",
     "vidrensic-repair <artifact> --out <copy> --manifest <report> [--mode remux]",
