@@ -47,6 +47,7 @@ vidrensic-media = "vidrensic.media_cli:main"
 vidrensic-export = "vidrensic.export_cli:main"
 vidrensic-profiler = "vidrensic.profiler_cli:main"
 vidrensic-scenes = "vidrensic.scene_cli:main"
+vidrensic-duplicates = "vidrensic.duplicate_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["vidrensic*"]
