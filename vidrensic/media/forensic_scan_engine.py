@@ -13,8 +13,9 @@ from vidrensic.media.inventory import MediaInventoryReport, inspect_media
 from vidrensic.media.timeline import MediaTimelineReport, analyze_media_timeline
 
 
-SCAN_SCHEMA_VERSION = 1
+SCAN_SCHEMA_VERSION = 2
 MAX_FINDINGS = 128
+MAX_EVIDENCE_INTERVALS = 1024
 FPS_DISAGREEMENT_REVIEW_FRACTION = 0.05
 MIN_REASONABLE_FPS = 1.0
 MAX_REASONABLE_FPS = 120.0
@@ -26,6 +27,21 @@ class ScanFinding:
     severity: str
     message: str
     evidence: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class EvidenceInterval:
+    source: str
+    code: str
+    severity: str
+    start_seconds: float | None
+    end_seconds: float | None
+    frame: int | None
+    confidence: str
+    message: str
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -44,6 +60,9 @@ class ForensicScanReport:
     profile: str
     inventory: MediaInventoryReport
     findings: tuple[ScanFinding, ...]
+    evidence_intervals: tuple[EvidenceInterval, ...]
+    confidence_level: str
+    confidence_basis: tuple[str, ...]
     qc: dict[str, Any] | None
     timeline: dict[str, Any] | None
     decoder_regions: dict[str, Any] | None
@@ -66,7 +85,12 @@ class ForensicScanReport:
             "completed_utc": self.completed_utc,
             "profile": self.profile,
             "status": self.status.value,
+            "confidence": {
+                "level": self.confidence_level,
+                "basis": list(self.confidence_basis),
+            },
             "findings": [finding.to_dict() for finding in self.findings],
+            "evidence_intervals": [interval.to_dict() for interval in self.evidence_intervals],
             "inventory": self.inventory.to_dict(),
             "qc": self.qc,
             "timeline": self.timeline,
@@ -74,6 +98,7 @@ class ForensicScanReport:
             "limitations": [
                 "Anomalies indicate conditions requiring review; they do not prove intentional tampering.",
                 "A PASS requires the deep profile to complete without review/fail findings, with full decode and complete timeline evidence.",
+                "Evidence intervals localize observed anomalies or failed decode windows; decoder-window boundaries are not exact corruption boundaries.",
                 "Stable hashing detects ordinary concurrent mutation/replacement but is not filesystem snapshotting against a privileged adversary.",
             ],
         }
@@ -255,6 +280,97 @@ def _analyze_decoder_regions(report: DecoderRegionReport, findings: list[ScanFin
         )
 
 
+def _build_evidence_intervals(
+    timeline_report: MediaTimelineReport | None,
+    decoder_report: DecoderRegionReport | None,
+) -> tuple[EvidenceInterval, ...]:
+    intervals: list[EvidenceInterval] = []
+
+    if timeline_report is not None:
+        for anomaly in timeline_report.anomalies[:MAX_EVIDENCE_INTERVALS]:
+            start = anomaly.previous if anomaly.previous is not None else anomaly.current
+            end = anomaly.current if anomaly.current is not None else anomaly.previous
+            if start is not None and end is not None:
+                start, end = min(start, end), max(start, end)
+            intervals.append(
+                EvidenceInterval(
+                    source="timeline",
+                    code=anomaly.kind,
+                    severity="REVIEW",
+                    start_seconds=start,
+                    end_seconds=end,
+                    frame=anomaly.frame,
+                    confidence="High" if start is not None and end is not None else "Moderate",
+                    message="observed timeline anomaly; interval localizes the timestamp evidence, not the cause",
+                )
+            )
+            if len(intervals) >= MAX_EVIDENCE_INTERVALS:
+                return tuple(intervals)
+
+    if decoder_report is not None:
+        for region in decoder_report.regions:
+            intervals.append(
+                EvidenceInterval(
+                    source="decoder",
+                    code="DECODER_ERROR_REGION",
+                    severity="FAIL",
+                    start_seconds=region.start_seconds,
+                    end_seconds=region.end_seconds,
+                    frame=None,
+                    confidence="Moderate",
+                    message="failed decode window region; boundaries identify sampled windows, not exact corruption limits",
+                )
+            )
+            if len(intervals) >= MAX_EVIDENCE_INTERVALS:
+                break
+
+    return tuple(intervals)
+
+
+def _confidence_assessment(
+    *,
+    profile: str,
+    qc: dict[str, Any] | None,
+    timeline: dict[str, Any] | None,
+    findings: list[ScanFinding],
+    hash_stable: bool,
+) -> tuple[str, tuple[str, ...]]:
+    basis: list[str] = []
+    if hash_stable:
+        basis.append("artifact identity remained stable")
+    else:
+        basis.append("artifact identity changed during scan")
+    if qc is not None and qc.get("status") == EvidenceStatus.PASS.value:
+        basis.append("media QC passed for the selected profile")
+    else:
+        basis.append("media QC was not a final PASS")
+    if timeline is not None and not timeline.get("truncated", False):
+        basis.append("timeline analysis completed within its configured bound")
+    else:
+        basis.append("timeline evidence is missing or bounded/incomplete")
+    if any(item.severity == "FAIL" for item in findings):
+        basis.append("one or more hard failures were observed")
+    elif any(item.severity == "REVIEW" for item in findings):
+        basis.append("one or more review conditions remain")
+    else:
+        basis.append("no review/fail findings remain")
+
+    if not hash_stable or any(item.severity == "FAIL" for item in findings):
+        return "Low", tuple(basis)
+    if (
+        profile == "deep"
+        and qc is not None
+        and qc.get("status") == EvidenceStatus.PASS.value
+        and timeline is not None
+        and not timeline.get("truncated", False)
+        and not any(item.severity == "REVIEW" for item in findings)
+    ):
+        return "High", tuple(basis)
+    if timeline is not None and not timeline.get("truncated", False):
+        return "Moderate", tuple(basis)
+    return "Low", tuple(basis)
+
+
 def _derive_status(
     findings: list[ScanFinding],
     *,
@@ -372,6 +488,14 @@ def run_forensic_scan(
     qc_dict = inventory.qc
     timeline_dict = None if timeline_report is None else timeline_report.to_dict()["timeline"]
     decoder_dict = None if decoder_report is None else decoder_report.to_dict()["decoder_errors"]
+    evidence_intervals = _build_evidence_intervals(timeline_report, decoder_report)
+    confidence_level, confidence_basis = _confidence_assessment(
+        profile=profile,
+        qc=qc_dict,
+        timeline=timeline_dict,
+        findings=findings,
+        hash_stable=hash_stable,
+    )
     status = _derive_status(
         findings,
         profile=profile,
@@ -393,6 +517,9 @@ def run_forensic_scan(
         profile=profile,
         inventory=inventory,
         findings=tuple(findings),
+        evidence_intervals=evidence_intervals,
+        confidence_level=confidence_level,
+        confidence_basis=confidence_basis,
         qc=qc_dict,
         timeline=timeline_dict,
         decoder_regions=decoder_dict,

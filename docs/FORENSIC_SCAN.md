@@ -29,6 +29,26 @@ Findings use three severities:
 
 An anomaly is not automatically evidence of deliberate manipulation. Container structure, timestamp behavior, frame-rate disagreement, and decode failures can arise from ordinary recorder behavior, export tooling, transport damage, or partial recovery.
 
+## Evidence intervals
+
+Reports now include `evidence_intervals`, a normalized list of localized observations suitable for review timelines and later reconstruction-confidence work.
+
+Timeline anomalies are localized from the observed PTS values when both sides are known. Their interval confidence is `High` when both timestamps are present, but that confidence describes the observation, not its cause.
+
+Decoder error intervals inherit the failed decode-window boundaries. Their confidence is `Moderate` because the window identifies where a bounded decoder check failed, not the exact corrupted frame or byte boundary.
+
+The interval layer intentionally does not infer intent, camera identity, or missing wall-clock time.
+
+## Confidence
+
+Reports include a separate confidence level:
+
+- `High`: deep qualification evidence completed, artifact remained stable, media QC passed, timeline completed, and no review findings remain.
+- `Moderate`: meaningful timeline evidence completed but the qualification is not strong enough for a high-confidence pass.
+- `Low`: evidence is incomplete/bounded, or a hard failure/identity problem is present.
+
+Confidence is an evidence-quality summary, not a probability of authenticity.
+
 ## Evidence identity
 
 The scanner hashes the artifact before and after the composite operation. The stable hash implementation also verifies the opened file's device/inode/size/timestamps and rejects pathname replacement or symlink substitution during hashing.
@@ -37,7 +57,7 @@ When the hashes differ between the beginning and end of the composite scan, the 
 
 ## Recommended workflow
 
-For a newly recovered candidate, run `quick` first for triage. Use `standard` when timing continuity matters. Use `deep` only when the artifact and expected duration are known well enough to support a full qualification claim. Keep the generated JSON report with the case because it contains the hash identity, evidence bounds, findings, and component QC outputs.
+For a newly recovered candidate, run `quick` first for triage. Use `standard` when timing continuity matters. Use `deep` only when the artifact and expected duration are known well enough to support a full qualification claim. Keep the generated JSON report with the case because it contains the hash identity, evidence bounds, findings, confidence assessment, and component QC outputs.
 
 Example:
 

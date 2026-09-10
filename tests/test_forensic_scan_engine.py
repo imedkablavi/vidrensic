@@ -6,6 +6,8 @@ import pytest
 from vidrensic.core.models import EvidenceStatus
 from vidrensic.media.forensic_scan_engine import (
     _analyze_inventory,
+    _build_evidence_intervals,
+    _confidence_assessment,
     _derive_status,
     run_forensic_scan,
 )
@@ -120,6 +122,10 @@ def test_standard_scan_records_timeline_anomaly(monkeypatch, tmp_path: Path) -> 
         duplicate_pts=0,
         large_gaps=1,
         duration_delta_seconds=0.2,
+        anomalies=(
+            SimpleNamespace(frame=12, kind="pts-backwards", previous=10.0, current=9.5, delta=-0.5),
+            SimpleNamespace(frame=14, kind="large-gap", previous=None, current=None, delta=3.0),
+        ),
         to_dict=lambda: {
             "timeline": {
                 "truncated": False,
@@ -150,3 +156,48 @@ def test_standard_scan_records_timeline_anomaly(monkeypatch, tmp_path: Path) -> 
     assert "PTS_NON_MONOTONIC" in codes
     assert "LARGE_TIMESTAMP_GAPS" in codes
     assert report.timeline["pts_non_monotonic"] == 2
+    assert len(report.evidence_intervals) == 2
+    assert report.evidence_intervals[0].start_seconds == 9.5
+    assert report.evidence_intervals[0].end_seconds == 10.0
+    assert report.evidence_intervals[0].confidence == "High"
+
+
+def test_decoder_regions_become_intervals() -> None:
+    timeline = None
+    decoder = SimpleNamespace(
+        regions=(
+            SimpleNamespace(start_seconds=20.0, end_seconds=24.0),
+        ),
+    )
+    intervals = _build_evidence_intervals(timeline, decoder)
+    assert len(intervals) == 1
+    assert intervals[0].source == "decoder"
+    assert intervals[0].code == "DECODER_ERROR_REGION"
+    assert intervals[0].start_seconds == 20.0
+    assert intervals[0].end_seconds == 24.0
+    assert intervals[0].confidence == "Moderate"
+
+
+def test_deep_clean_evidence_has_high_confidence() -> None:
+    level, basis = _confidence_assessment(
+        profile="deep",
+        qc={"status": "PASS"},
+        timeline={"truncated": False},
+        findings=[],
+        hash_stable=True,
+    )
+    assert level == "High"
+    assert "artifact identity remained stable" in basis
+    assert "no review/fail findings remain" in basis
+
+
+def test_incomplete_evidence_has_lower_confidence() -> None:
+    level, basis = _confidence_assessment(
+        profile="standard",
+        qc={"status": "REVIEW"},
+        timeline={"truncated": True},
+        findings=[],
+        hash_stable=True,
+    )
+    assert level == "Low"
+    assert "timeline evidence is missing or bounded/incomplete" in basis

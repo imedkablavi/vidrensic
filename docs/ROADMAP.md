@@ -119,6 +119,8 @@ See `VALIDATION.md` and `VALIDATION_CORPUS.md`.
 - [x] remux-first repair workflow
 - [x] controlled transcode proxy workflow
 - [x] composite forensic scan engine with conservative PASS/REVIEW/FAIL verdicts
+- [x] normalized evidence intervals for timeline and decoder observations
+- [x] evidence-quality confidence bands separate from authenticity claims
 
 ## Phase G - Review workstation
 

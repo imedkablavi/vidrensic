@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 260" role="img" aria-labelledby="title desc">
+  <title id="title">Vidrensic wordmark</title>
+  <desc id="desc">Vidrensic wordmark with a forensic video evidence tagline.</desc>
+  <defs>
+    <linearGradient id="signal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+    <linearGradient id="analysis" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38BDF8"/>
+      <stop offset="1" stop-color="#6366F1"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(24 20)">
+    <rect width="220" height="220" rx="50" fill="#07111C"/>
+    <path d="M110 24 175 48v56c0 48-27 80-65 101-38-21-65-53-65-101V48l65-24Z" fill="#0D1B2A" stroke="url(#signal)" stroke-width="9"/>
+    <path d="M73 82 110 159 147 82" fill="none" stroke="url(#analysis)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="110" cy="97" r="24" fill="#07111C" stroke="#22D3EE" stroke-width="5"/>
+    <path d="m103 85 20 12-20 12Z" fill="#F8FAFC"/>
+    <circle cx="52" cy="148" r="4" fill="#34D399"/>
+    <circle cx="168" cy="148" r="4" fill="#34D399"/>
+  </g>
+  <g transform="translate(286 48)" font-family="Inter,Segoe UI,Arial,sans-serif">
+    <text x="0" y="82" fill="#07111C" font-size="76" font-weight="800" letter-spacing="6">VIDRENSIC</text>
+    <rect x="2" y="104" width="550" height="4" rx="2" fill="url(#analysis)"/>
+    <text x="0" y="150" fill="#475569" font-size="26" font-weight="500">Forensic-first DVR / NVR evidence reconstruction</text>
+    <text x="0" y="190" fill="#64748B" font-size="18" font-weight="600" letter-spacing="2">ACQUIRE  ·  TRIAGE  ·  RECONSTRUCT  ·  VALIDATE  ·  AUDIT</text>
+  </g>
+</svg>
