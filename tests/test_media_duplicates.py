@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from vidrensic.media import duplicates as duplicate_module
 from vidrensic.media.duplicates import (
     DEFAULT_FRAME_MATCH_THRESHOLD,
     DEFAULT_SIMILARITY_THRESHOLD,
@@ -84,11 +85,37 @@ def test_analyze_media_set_rejects_empty_and_large_input(tmp_path: Path) -> None
         analyze_media_set(sources)
 
 
-def test_report_serializes_classification_semantics(tmp_path: Path) -> None:
+def test_compare_serializes_classification(tmp_path: Path) -> None:
     left = _signature(tmp_path / "a.mp4", "same")
     right = _signature(tmp_path / "b.mp4", "same")
-    report = analyze_media_set
-    assert callable(report)
     comparison = compare_signatures(left, right, sample_count=1)
+
     payload = comparison.to_dict()
     assert payload["classification"] == "EXACT"
+
+
+def test_build_signature_rejects_source_mutation(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "video.mp4"
+    source.write_bytes(b"video")
+    hashes = iter(
+        [
+            duplicate_module.MediaSignature.__annotations__,
+        ]
+    )
+    del hashes
+    stable_hashes = iter(
+        [
+            type("Hashes", (), {"sha256": "a", "sha512": "b"})(),
+            type("Hashes", (), {"sha256": "changed", "sha512": "c"})(),
+        ]
+    )
+    monkeypatch.setattr(duplicate_module, "forensic_hashes_stable", lambda _path: next(stable_hashes))
+    monkeypatch.setattr(
+        duplicate_module,
+        "probe_video",
+        lambda _path: type("Probe", (), {"duration": 1.0, "codec": "h264"})(),
+    )
+    monkeypatch.setattr(duplicate_module, "_sample_frame_hashes", lambda *args, **kwargs: (1,))
+
+    with pytest.raises(duplicate_module.DuplicateAnalysisError, match="changed"):
+        duplicate_module.build_signature(source, sample_count=1)
