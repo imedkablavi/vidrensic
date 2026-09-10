@@ -12,6 +12,7 @@ def test_product_help_is_clean(capsys) -> None:
     assert "vidrensic-scenes" in output
     assert "vidrensic-duplicates" in output
     assert "vidrensic-repair" in output
+    assert "vidrensic-proxy" in output
     assert "vidrensic-export" in output
     assert "vidrensic-profiler" in output
     assert "WFS" not in output
@@ -26,4 +27,5 @@ def test_advanced_help_is_explicit(capsys) -> None:
     assert "vidrensic-scenes" in output
     assert "vidrensic-duplicates" in output
     assert "vidrensic-repair" in output
+    assert "vidrensic-proxy" in output
     assert "vidrensic-profiler" in output
