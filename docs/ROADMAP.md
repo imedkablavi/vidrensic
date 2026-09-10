@@ -118,6 +118,7 @@ See `VALIDATION.md` and `VALIDATION_CORPUS.md`.
 - [x] duplicate/near-duplicate detection
 - [x] remux-first repair workflow
 - [x] controlled transcode proxy workflow
+- [x] composite forensic scan engine with conservative PASS/REVIEW/FAIL verdicts
 
 ## Phase G - Review workstation
 
