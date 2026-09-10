@@ -6,10 +6,10 @@ This runbook defines the local workflow for validating legally authorized real-r
 
 Store the acquired fixture and its working manifest/report directory outside every Git working tree. The private runner enforces this by default.
 
-Recommended layout:
+Use a lab-controlled private root such as:
 
 ```text
-/srv/vidrensic-private/
+PRIVATE_CASE_ROOT/
   cases/
     lab-wfs-001/
       recorder-image.raw
@@ -24,8 +24,8 @@ Set filesystem ownership and broader directory permissions according to the lab 
 Use the existing command to hash the source without copying it:
 
 ```bash
-vidrensic validate private-case /srv/vidrensic-private/cases/lab-wfs-001/recorder-image.raw \
-  --out /srv/vidrensic-private/cases/lab-wfs-001/private-case.json \
+vidrensic validate private-case PRIVATE_CASE_ROOT/cases/lab-wfs-001/recorder-image.raw \
+  --out PRIVATE_CASE_ROOT/cases/lab-wfs-001/private-case.json \
   --case-id lab-wfs-001 \
   --family wfs \
   --manufacturer Example \
@@ -97,8 +97,8 @@ Only add expectations that have an independent basis. Use tolerances or coarse a
 
 ```bash
 python scripts/run_private_validation.py \
-  /srv/vidrensic-private/cases/lab-wfs-001/corpus.json \
-  --out /srv/vidrensic-private/cases/lab-wfs-001/report.json
+  PRIVATE_CASE_ROOT/cases/lab-wfs-001/corpus.json \
+  --out PRIVATE_CASE_ROOT/cases/lab-wfs-001/report.json
 ```
 
 The runner:

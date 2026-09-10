@@ -78,9 +78,12 @@ def create_private_case_manifest(
     not proof of recorder-family compatibility.
     """
 
-    source = source.expanduser().resolve()
+    source_input = source.expanduser()
+    if source_input.is_symlink():
+        raise ValueError("source must be an existing regular non-symlink file")
+    source = source_input.resolve(strict=True)
     output = output.expanduser().resolve()
-    if not source.is_file() or source.is_symlink():
+    if not source.is_file():
         raise ValueError("source must be an existing regular non-symlink file")
 
     case_id = _safe_text(case_id, "case_id")

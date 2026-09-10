@@ -133,7 +133,10 @@ def test_validate_corpus_cli_writes_machine_readable_report(tmp_path: Path, caps
     data = json.loads(report.read_text(encoding="utf-8"))
     assert data["status"] == "PASS"
     stdout = capsys.readouterr().out
-    assert "passed=1" in stdout
+    assert "Validation complete" in stdout
+    assert "Passed             1" in stdout
+    assert "Failed             0" in stdout
+    assert "passed=" not in stdout
 
 
 def test_recover_wfs_cli_defaults_to_global_strategy(monkeypatch, tmp_path: Path, capsys) -> None:
@@ -176,7 +179,9 @@ def test_recover_wfs_cli_defaults_to_global_strategy(monkeypatch, tmp_path: Path
     assert rc == 0
     assert captured["strategy"] == "global"
     assert captured["starts"] if "starts" in captured else True
-    assert "strategy=global" in capsys.readouterr().out
+    stdout = capsys.readouterr().out
+    assert "Recovery complete" in stdout
+    assert "strategy=global" not in stdout
 
 
 def test_recover_wfs_cli_rejects_duplicate_starts(tmp_path: Path) -> None:
