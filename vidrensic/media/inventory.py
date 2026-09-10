@@ -119,7 +119,10 @@ def _qc_dict(report: Any) -> dict[str, Any]:
 
 
 def _validate_artifact(path: Path) -> Path:
-    resolved = path.expanduser().resolve(strict=True)
+    input_path = path.expanduser()
+    if input_path.is_symlink():
+        raise ValueError("media artifact must be a regular non-symlink file")
+    resolved = input_path.resolve(strict=True)
     mode = resolved.stat().st_mode
     if not stat.S_ISREG(mode):
         raise ValueError(f"media artifact must be a regular file: {resolved}")
