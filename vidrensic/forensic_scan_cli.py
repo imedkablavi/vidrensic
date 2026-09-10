@@ -92,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
     checkpoint = {
         "report": str(output),
         "status": report.status.value,
+        "confidence": report.confidence_level,
+        "interval_count": len(report.evidence_intervals),
         "sha256_before": report.sha256_before,
         "sha256_after": report.sha256_after,
         "finding_count": len(report.findings),
@@ -116,6 +118,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Artifact     {report.artifact.name}")
     print(f"Profile      {report.profile}")
     print(f"Verdict      {report.status.value}")
+    print(f"Confidence   {report.confidence_level}")
+    print(f"Intervals    {len(report.evidence_intervals):,}")
     print(f"SHA-256      {report.sha256_after}")
     print(f"Findings     {len(report.findings):,}")
     for finding in report.findings[:20]:
