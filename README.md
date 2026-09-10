@@ -19,7 +19,7 @@ Acquire · Triage · Detect · Reconstruct · Validate · Audit
 
 **Recover what the recorder still contains without pretending uncertainty is certainty.**
 
-[Demo](docs/DEMO.md) · [Support matrix](docs/SUPPORT_MATRIX.md) · [Validation](docs/VALIDATION.md) · [Validation corpus](docs/VALIDATION_CORPUS.md) · [Roadmap](docs/ROADMAP.md) · [Contributing](CONTRIBUTING.md)
+[Demo](docs/DEMO.md) · [Support matrix](docs/SUPPORT_MATRIX.md) · [Validation](docs/VALIDATION.md) · [Validation corpus](docs/VALIDATION_CORPUS.md) · [Roadmap](docs/ROADMAP.md) · [Brand](docs/BRAND_GUIDELINES.md) · [Licensing](docs/LICENSING.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -87,7 +87,7 @@ The setup is idempotent and always resolves the real repository root. Python 3.1
 ### Try it without real evidence
 
 ```bash
-bash examples/run_demo.sh
+examples/run_demo.sh
 ```
 
 The demo creates a deterministic synthetic DHAV-like source, ranks format evidence, recovers structurally valid frames into two physical channels and emits a forensic manifest. The demo itself is regression-tested so it cannot silently rot as parsers evolve.
@@ -102,6 +102,18 @@ vidrensic validate corpus validation_corpus/corpus.json \
 ```
 
 The public corpus is intentionally synthetic. Passing it proves the declared synthetic expectations and corpus machinery; it does **not** prove universal real-recorder support.
+
+### Run the composite forensic scan
+
+```bash
+vidrensic-forensic-scan candidate.mp4 \
+  --out reports/candidate.scan.json \
+  --profile standard
+```
+
+Use `--profile quick` for bounded triage. Use `--profile standard` for full timeline analysis with sampled decode QC. Use `--profile deep` with `--expected-duration` when a full qualification claim is actually supported by the available evidence.
+
+The scan report includes stable artifact hashes, structured findings, localized evidence intervals and a separate evidence-quality confidence band. `PASS` is deliberately conservative and does not mean “authentic” or “untampered”.
 
 ## Core workflow
 
@@ -120,7 +132,7 @@ reconstruction / native extraction
   ↓
 QC + provenance
   ↓
-validation corpus / review / export
+validation / review / export
 ```
 
 Triage an unknown image without modifying it:
@@ -309,11 +321,9 @@ fresh installation of the built wheel
 built-wheel corpus + smoke tests
 ```
 
-At the 0.6 development milestone, CI reports approximately 80.6% total coverage, with WFS local reconstruction ~85%, WFS global reconstruction ~91%, WFS high-level recovery ~95%, generic solver ~91%, hashing/provenance ~90%+, crypto ~84%, and ddrescue orchestration 100%. These numbers are release-gate evidence, not independent forensic validation.
-
 Additional security automation audits Python dependencies, public-release hygiene and the complete Git history for secrets.
 
-See [`docs/VALIDATION.md`](docs/VALIDATION.md), [`docs/VALIDATION_CORPUS.md`](docs/VALIDATION_CORPUS.md) and [`docs/RELEASE_NOTES_0.6.md`](docs/RELEASE_NOTES_0.6.md).
+See [`docs/VALIDATION.md`](docs/VALIDATION.md), [`docs/VALIDATION_CORPUS.md`](docs/VALIDATION_CORPUS.md), [`docs/FORENSIC_SCAN.md`](docs/FORENSIC_SCAN.md), and [`docs/RELEASE_NOTES_0.6.md`](docs/RELEASE_NOTES_0.6.md).
 
 ## Repository map
 
@@ -351,6 +361,10 @@ CITATION.cff             citation metadata for research/tool references
 10. Do not advertise a family/model as recoverable when only detection or profiling exists.
 11. A source-hash mismatch invalidates a validation case before recovery runs.
 
+## Licensing & Brand
+
+Vidrensic source code is proprietary. Public repository visibility is not a general software-use grant. The repository `LICENSE` defines software rights, while [`docs/LICENSING.md`](docs/LICENSING.md) explains practical usage boundaries and third-party licensing. Official logos, wordmarks and distinctive artwork are governed separately by the brand rules in [`docs/BRAND_GUIDELINES.md`](docs/BRAND_GUIDELINES.md).
+
 ## Contributing
 
 High-value contributions include synthetic/legal fixtures, corruption cases, format documentation, test vectors, safety hardening and reproducible bug reports. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md).
@@ -369,31 +383,10 @@ If Vidrensic is useful to your research or lab work, a GitHub star helps other p
 
 Near-term priorities:
 
-- grow a multi-device WFS/DHAV real-recorder validation corpus with independently established ground truth;
-- WFS frame/NAL/GOP-level partial-overwrite salvage;
-- performance tuning and branch-and-bound pruning for path-dependent WFS global search;
-- DHAV chronological circular-wrap reconstruction and audio validation;
-- Hikvision HIKBTREE/data-block variant parsers backed by real fixtures;
-- E01/Ex01/AFF4 adapter strategy with independent verification;
-- RAID parity and recorder-specific multi-disk hypotheses;
-- synchronized multi-camera review workstation;
-- forensic export/report packages and stronger signed provenance;
-- independent rerun / validation reporting.
+- grow a multi-device WFS/DHAV real-recorder validation corpus;
+- add frame/NAL/GOP-level partial-overwrite salvage and corruption mapping;
+- integrate packet/timestamp/decoder continuity into reconstruction confidence;
+- deepen multi-disk/image-format support and forensic reporting;
+- package a signed Linux review workstation.
 
-Full roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md).
-
-## Ownership and license
-
-Project owner / lead developer: [`@imedkablavi`](https://github.com/imedkablavi)
-
-Copyright © 2026 imedkablavi. All rights reserved.
-
-Vidrensic is currently proprietary software. Repository visibility does not by itself grant permission to redistribute, sublicense, sell, publish, host or incorporate the source into another product. See [`LICENSE`](LICENSE), [`NOTICE.md`](NOTICE.md) and [`AUTHORS.md`](AUTHORS.md).
-
----
-
-<div align="center">
-
-**Vidrensic - reconstruct the recording, preserve the evidence.**
-
-</div>
+See [`docs/ROADMAP.md`](docs/ROADMAP.md).
