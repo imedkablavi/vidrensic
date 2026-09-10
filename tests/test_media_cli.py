@@ -64,3 +64,34 @@ def test_media_cli_qc_review_returns_nonzero(monkeypatch, tmp_path: Path, capsys
 
     assert media_cli.main([str(source), "--out", str(tmp_path / "inventory.json"), "--qc", "fast"]) == 3
     assert "Review required" in capsys.readouterr().out
+
+
+def test_media_cli_decoder_error_regions(monkeypatch, tmp_path: Path, capsys) -> None:
+    source = tmp_path / "recovered.mp4"
+    source.write_bytes(b"fixture")
+    region = SimpleNamespace(start_seconds=8.0, end_seconds=12.0, failed_windows=2)
+    report = SimpleNamespace(
+        artifact=source,
+        duration_seconds=65.0,
+        window_count=17,
+        failed_window_count=2,
+        coverage_fraction=1.0,
+        sampling_complete=True,
+        regions=(region,),
+        sha256="a" * 64,
+        sha512="b" * 128,
+        to_dict=lambda: {
+            "schema_version": 1,
+            "decoder_errors": {"failed_window_count": 2, "region_count": 1},
+        },
+        write_json=lambda output, replace=False: output,
+    )
+    monkeypatch.setattr(media_cli, "analyze_decoder_error_regions", lambda *args, **kwargs: report)
+
+    assert media_cli.main(
+        [str(source), "--out", str(tmp_path / "errors.json"), "--decoder-errors"]
+    ) == 3
+    output = capsys.readouterr().out
+    assert "Decoder error analysis complete" in output
+    assert "Review required" in output
+    assert "00:08" in output
