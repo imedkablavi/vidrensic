@@ -323,7 +323,9 @@ def analyze_media_timeline(
                     )
             previous_dts = dts if dts is not None else previous_dts
     finally:
-        stream.close()
+        close = getattr(stream, "close", None)
+        if close is not None:
+            close()
 
     interval_values = [delta for _, delta in intervals]
     if interval_values:
