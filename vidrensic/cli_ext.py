@@ -133,7 +133,7 @@ def _analyze(argv: list[str]) -> int:
         label("Source size", f"{report.source_info['size_bytes']:,} bytes")
     filesystems = report.storage.get("filesystems", [])
     if filesystems:
-        label("Storage", f"{len(filesystems)} filesystem finding(s)")
+        label("Storage", f"{len(filesystems)} finding(s)")
 
     if detection["requires_review"]:
         warning("No automatic format decision was made. Review the analysis before recovery.")
@@ -519,7 +519,7 @@ def _product_help() -> int:
     print("Start here")
     print("  analyze <source> --out <report>   Analyze a recorder source")
     print("  acquire verify ...                Verify an acquired image")
-    print("  recover wfs ...                   Recover WFS candidates")
+    print("  recover ...                       Recover recording candidates")
     print("  validate corpus ...               Run declared validation")
     print()
     print("Case and system")
