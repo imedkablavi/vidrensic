@@ -115,7 +115,7 @@ See `VALIDATION.md` and `VALIDATION_CORPUS.md`.
 - [x] frame-rate inference with confidence
 - [x] duration confidence separate from nominal duration
 - [x] visual scene sampling/contact sheets
-- [ ] duplicate/near-duplicate detection
+- [x] duplicate/near-duplicate detection
 - [ ] remux-first repair workflow
 - [ ] controlled transcode proxy workflow
 
