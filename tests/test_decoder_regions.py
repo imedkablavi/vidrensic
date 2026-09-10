@@ -24,7 +24,8 @@ def test_decoder_regions_merge_adjacent_failed_windows(tmp_path: Path, monkeypat
 
     failed = {4.0, 8.0}
 
-    def fake_decode(*, start_seconds: float, **_: object) -> tuple[bool, str]:
+    def fake_decode(path: Path, *, start_seconds: float, **_: object) -> tuple[bool, str]:
+        assert path == source
         if start_seconds in failed:
             return False, "decoder error"
         return True, ""
@@ -48,7 +49,7 @@ def test_decoder_regions_report_partial_sampling(tmp_path: Path, monkeypatch: py
     source.write_bytes(b"fixture")
     monkeypatch.setattr(decoder_regions, "forensic_hashes_stable", lambda _: _hashes())
     monkeypatch.setattr(decoder_regions, "probe_video", lambda _: _probe(100.0))
-    monkeypatch.setattr(decoder_regions, "decode_window", lambda **_: (True, ""))
+    monkeypatch.setattr(decoder_regions, "decode_window", lambda *_args, **_kwargs: (True, ""))
 
     report = decoder_regions.analyze_decoder_error_regions(
         source,
@@ -81,7 +82,7 @@ def test_decoder_regions_fail_closed_when_artifact_changes(tmp_path: Path, monke
     calls = iter(("before", "after"))
     monkeypatch.setattr(decoder_regions, "forensic_hashes_stable", lambda _: _hashes(next(calls)))
     monkeypatch.setattr(decoder_regions, "probe_video", lambda _: _probe(4.0))
-    monkeypatch.setattr(decoder_regions, "decode_window", lambda **_: (True, ""))
+    monkeypatch.setattr(decoder_regions, "decode_window", lambda *_args, **_kwargs: (True, ""))
 
     with pytest.raises(decoder_regions.DecoderRegionAnalysisError, match="changed during"):
         decoder_regions.analyze_decoder_error_regions(source)
