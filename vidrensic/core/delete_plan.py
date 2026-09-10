@@ -202,6 +202,21 @@ def _load_plan(path: Path, case_root: Path) -> DeletionPlan:
     )
 
 
+def _append_tombstone(path: Path, result: dict[str, object]) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags, PRIVATE_FILE_MODE)
+    except OSError as exc:
+        raise DeletionPlanError(f"unable to open tombstone log safely: {exc}") from exc
+    try:
+        payload = (json.dumps(result, sort_keys=True) + "\n").encode("utf-8")
+        os.write(fd, payload)
+        os.fsync(fd)
+        os.fchmod(fd, PRIVATE_FILE_MODE)
+    finally:
+        os.close(fd)
+
+
 def execute_deletion_plan(
     case_root: Path,
     plan_path: Path,
@@ -221,12 +236,16 @@ def execute_deletion_plan(
     tombstones = tombstones.expanduser()
     if tombstones.is_symlink():
         raise DeletionPlanError("tombstone log may not be a symlink")
-    tombstones.parent.mkdir(parents=True, exist_ok=True)
+    tombstone_resolved = tombstones.resolve()
     try:
-        tombstones.parent.resolve(strict=True).relative_to(root)
+        tombstone_resolved.relative_to(root)
     except ValueError as exc:
         raise DeletionPlanError("tombstone log must be inside the case root") from exc
-    os.chmod(tombstones.parent, 0o700)
+    tombstone_relative = tombstone_resolved.relative_to(root).as_posix()
+    if tombstone_relative in {target.relative_path for target in plan.targets}:
+        raise DeletionPlanError("tombstone log may not overlap a deletion target")
+    tombstone_resolved.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(tombstone_resolved.parent, 0o700)
 
     now = datetime.now(UTC).isoformat()
     checked: list[DeletionTarget] = []
@@ -276,7 +295,5 @@ def execute_deletion_plan(
             "reason": target.reason,
         }
         results.append(result)
-        with tombstones.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(result, sort_keys=True) + "\n")
-        os.chmod(tombstones, PRIVATE_FILE_MODE)
+        _append_tombstone(tombstones, result)
     return results
