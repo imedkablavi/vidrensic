@@ -73,9 +73,7 @@ def _allowed_target(case_root: Path, path: Path) -> Path:
     except ValueError as exc:
         raise DeletionPlanError("deletion target must be inside the case root") from exc
     if not relative.parts or relative.parts[0] not in ALLOWED_ROOTS:
-        raise DeletionPlanError(
-            "deletion target is outside the derived/work safety boundary"
-        )
+        raise DeletionPlanError("deletion target is outside the derived/work safety boundary")
     return resolved
 
 
@@ -106,7 +104,7 @@ def create_deletion_plan(
     for target in targets:
         resolved = _allowed_target(root, target)
         relative = resolved.relative_to(root)
-        key = str(relative)
+        key = relative.as_posix()
         if key in seen:
             raise DeletionPlanError(f"duplicate deletion target: {relative}")
         seen.add(key)
@@ -213,6 +211,12 @@ def execute_deletion_plan(
 ) -> list[dict[str, object]]:
     root = case_root.expanduser().resolve(strict=True)
     plan = _load_plan(plan_path, root)
+    plan_resolved = plan_path.expanduser().resolve(strict=True)
+    plan_relative = plan_resolved.relative_to(root).as_posix()
+    for target in plan.targets:
+        if target.relative_path == plan_relative:
+            raise DeletionPlanError("deletion plan may not delete itself")
+
     tombstones = tombstone_path or (root / "state" / "deletion_tombstones.jsonl")
     tombstones = tombstones.expanduser()
     if tombstones.is_symlink():
@@ -223,51 +227,50 @@ def execute_deletion_plan(
     except ValueError as exc:
         raise DeletionPlanError("tombstone log must be inside the case root") from exc
     os.chmod(tombstones.parent, 0o700)
-    results: list[dict[str, object]] = []
+
     now = datetime.now(UTC).isoformat()
+    checked: list[DeletionTarget] = []
     for target in plan.targets:
         path = target.path
-        observed_sha256: str | None = None
-        status = "not-deleted"
+        if path.is_symlink():
+            raise DeletionPlanError(f"target became a symlink: {target.relative_path}")
+        resolved = path.resolve(strict=True)
+        if not resolved.is_file():
+            raise DeletionPlanError(f"target is no longer a regular file: {target.relative_path}")
+        if resolved.relative_to(root).as_posix() != target.relative_path:
+            raise DeletionPlanError(f"target path no longer matches the plan: {target.relative_path}")
+        current = forensic_hashes_stable(resolved)
+        if current.sha256 != target.sha256:
+            raise DeletionPlanError(f"target SHA-256 no longer matches the plan: {target.relative_path}")
+        if resolved.stat().st_size != target.size_bytes:
+            raise DeletionPlanError(f"target size no longer matches the plan: {target.relative_path}")
+        checked.append(target)
+
+    results: list[dict[str, object]] = []
+    for target in checked:
+        path = target.path
         try:
             if path.is_symlink():
-                raise DeletionPlanError("target became a symlink")
+                raise DeletionPlanError("target became a symlink after preflight")
             resolved = path.resolve(strict=True)
-            if not resolved.is_file():
-                raise DeletionPlanError("target is no longer a regular file")
             if resolved.relative_to(root).as_posix() != target.relative_path:
-                raise DeletionPlanError("target path no longer matches the plan")
+                raise DeletionPlanError("target path no longer matches the plan after preflight")
             current = forensic_hashes_stable(resolved)
-            observed_sha256 = current.sha256
             if current.sha256 != target.sha256:
-                raise DeletionPlanError("target SHA-256 no longer matches the plan")
+                raise DeletionPlanError("target SHA-256 no longer matches the plan after preflight")
             if resolved.stat().st_size != target.size_bytes:
-                raise DeletionPlanError("target size no longer matches the plan")
+                raise DeletionPlanError("target size no longer matches the plan after preflight")
             resolved.unlink()
-            status = "deleted"
         except (OSError, ValueError, DeletionPlanError) as exc:
-            results.append(
-                {
-                    "plan_id": plan.plan_id,
-                    "target_id": target.target_id,
-                    "relative_path": target.relative_path,
-                    "expected_sha256": target.sha256,
-                    "observed_sha256": observed_sha256,
-                    "status": status,
-                    "error": str(exc),
-                    "timestamp_utc": now,
-                    "actor": actor or plan.actor,
-                }
-            )
-            break
+            raise DeletionPlanError(f"deletion stopped at {target.relative_path}: {exc}") from exc
         result = {
             "plan_id": plan.plan_id,
             "target_id": target.target_id,
             "relative_path": target.relative_path,
             "expected_sha256": target.sha256,
-            "observed_sha256": observed_sha256,
+            "observed_sha256": current.sha256,
             "size_bytes": target.size_bytes,
-            "status": status,
+            "status": "deleted",
             "timestamp_utc": now,
             "actor": actor or plan.actor,
             "reason": target.reason,
@@ -276,6 +279,4 @@ def execute_deletion_plan(
         with tombstones.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(result, sort_keys=True) + "\n")
         os.chmod(tombstones, PRIVATE_FILE_MODE)
-    if len(results) != len(plan.targets) or any(item["status"] != "deleted" for item in results):
-        raise DeletionPlanError("deletion plan execution stopped before all targets were deleted")
     return results
