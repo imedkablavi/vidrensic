@@ -11,6 +11,7 @@ import uuid
 from vidrensic.core.audit import AuditLog
 from vidrensic.core.jobs import JobStore
 from vidrensic.core.json_limits import BoundedJSONError, load_bounded_json
+from vidrensic.core.review import ReviewStore
 
 
 CASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
@@ -37,6 +38,15 @@ class Case:
     @property
     def jobs(self) -> JobStore:
         return JobStore(self.root / "state" / "jobs.sqlite3")
+
+    @property
+    def review(self) -> ReviewStore:
+        return ReviewStore(
+            self.root / "state" / "review.sqlite3",
+            case_root=self.root,
+            audit=self.audit,
+            actor=self.examiner,
+        )
 
     @property
     def metadata_path(self) -> Path:
