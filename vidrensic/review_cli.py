@@ -7,6 +7,7 @@ import sys
 
 from vidrensic.core.case import Case
 from vidrensic.core.review import ReviewState
+from vidrensic.media.review_timeline import ReviewTimelineError, build_review_timeline
 
 
 def _positive_int(value: str) -> int:
@@ -66,6 +67,15 @@ def main(argv: list[str] | None = None) -> int:
     list_parser.add_argument("--limit", type=_positive_int, default=100)
     list_parser.add_argument("--json", action="store_true")
 
+    timeline_parser = subparsers.add_parser("timeline", help="build a normalized review timeline contract")
+    timeline_parser.add_argument("--case", type=Path, required=True)
+    timeline_parser.add_argument("--item", required=True)
+    timeline_parser.add_argument("--timeline-report", type=Path, required=True)
+    timeline_parser.add_argument("--decoder-report", type=Path)
+    timeline_parser.add_argument("--out", type=Path, required=True)
+    timeline_parser.add_argument("--replace", action="store_true")
+    timeline_parser.add_argument("--json", action="store_true")
+
     state_parser = subparsers.add_parser("set-state", help="set KEEP/REVIEW/DISCARD state")
     state_parser.add_argument("--case", type=Path, required=True)
     state_parser.add_argument("--item", required=True)
@@ -100,6 +110,29 @@ def main(argv: list[str] | None = None) -> int:
                     _print_item(item)
             return 0
 
+        if args.command == "timeline":
+            contract = build_review_timeline(
+                case,
+                args.item,
+                args.timeline_report,
+                decoder_report_path=args.decoder_report,
+            )
+            output = contract.write_json(args.out, replace=args.replace)
+            if args.json:
+                print(json.dumps(contract.to_dict(), indent=2, sort_keys=True))
+            else:
+                print("Review timeline created")
+                print()
+                print(f"Artifact     {contract.media['artifact']}")
+                print(f"State        {contract.item['state']}")
+                print(f"Bookmarks    {len(contract.bookmarks):,}")
+                print(
+                    f"Decoder QC   {('Included' if contract.decoder_errors is not None else 'Not included')}"
+                )
+                print("Hash binding Yes")
+                print(f"Output       {output.expanduser().resolve()}")
+            return 0
+
         if args.command == "set-state":
             item = case.review.set_state(
                 args.item,
@@ -123,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"Bookmark created: {bookmark.bookmark_id} @ {bookmark.timestamp_seconds:.3f}s")
         return 0
-    except (OSError, RuntimeError, ValueError, KeyError) as exc:
+    except (OSError, RuntimeError, ReviewTimelineError, ValueError, KeyError) as exc:
         print(f"Unable to update review state: {exc}", file=sys.stderr)
         return 2
 
