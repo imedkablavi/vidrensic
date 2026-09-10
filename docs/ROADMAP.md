@@ -142,13 +142,13 @@ Primary review UX target:
 - [x] auditable review state (`REVIEW` / `KEEP` / `DISCARD`)
 - [x] bookmarks and analyst notes data layer
 - [x] normalized hash-bound review timeline contract
-- [ ] sticky preview
+- [x] sticky preview
 - [ ] hour/date/candidate filters
 - [ ] synchronized matrix view
 - [ ] thumbnail/contact-sheet strip
-- [ ] frame stepping and playback-speed controls
+- [x] frame stepping and playback-speed controls
 - [ ] seek watchdog/reload-position recovery
-- [ ] graphical workstation UI
+- [x] initial local graphical workstation UI
 - [ ] safe derived-copy deletion plans bound to file identity
 - [ ] deletion audit/tombstones
 
