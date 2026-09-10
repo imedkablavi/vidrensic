@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
-import math
-import subprocess
 
 from vidrensic.core.hashing import forensic_hashes_stable
 from vidrensic.core.private_io import atomic_write_private_json
