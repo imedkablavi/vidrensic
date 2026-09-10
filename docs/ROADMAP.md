@@ -117,7 +117,7 @@ See `VALIDATION.md` and `VALIDATION_CORPUS.md`.
 - [x] visual scene sampling/contact sheets
 - [x] duplicate/near-duplicate detection
 - [x] remux-first repair workflow
-- [ ] controlled transcode proxy workflow
+- [x] controlled transcode proxy workflow
 
 ## Phase G - Review workstation
 
