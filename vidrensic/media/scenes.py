@@ -113,12 +113,7 @@ def create_contact_sheet(
     thumbnail_width: int = DEFAULT_THUMBNAIL_WIDTH,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> SceneSamplingReport:
-    """Create a bounded derived contact sheet for visual triage.
-
-    The sheet is intentionally not an evidence substitute. Sampling is approximately
-    even over the nominal duration, and the exact source frame/time for a cell is not
-    asserted by this report.
-    """
+    """Create a bounded, private derived artifact for visual video triage."""
 
     if not 1 <= sample_count <= MAX_SAMPLE_COUNT:
         raise ValueError(f"sample_count must be between 1 and {MAX_SAMPLE_COUNT}")
