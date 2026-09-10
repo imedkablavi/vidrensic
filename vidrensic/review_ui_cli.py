@@ -8,7 +8,7 @@ import webbrowser
 
 from vidrensic.core.case import Case
 from vidrensic.review_server import LOOPBACK_HOSTS, serve_review_workstation
-from vidrensic.review_ui_v2 import REVIEW_WORKSTATION_HTML
+from vidrensic.review_ui_v3 import REVIEW_WORKSTATION_HTML
 
 
 def _port(value: str) -> int:
