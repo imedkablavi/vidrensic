@@ -363,7 +363,7 @@ CITATION.cff             citation metadata for research/tool references
 
 ## Licensing & Brand
 
-Vidrensic source code is proprietary. Public repository visibility is not a general software-use grant. The repository `LICENSE` defines software rights, while [`docs/LICENSING.md`](docs/LICENSING.md) explains practical usage boundaries and third-party licensing. Official logos, wordmarks and distinctive artwork are governed separately by the brand rules in [`docs/BRAND_GUIDELINES.md`](docs/BRAND_GUIDELINES.md).
+Vidrensic source code is proprietary. Public repository visibility is not a general software-use grant. The repository [`LICENSE`](LICENSE) defines software rights, [`NOTICE.md`](NOTICE.md) records ownership and third-party boundaries, [`AUTHORS.md`](AUTHORS.md) records project ownership, and [`docs/LICENSING.md`](docs/LICENSING.md) explains practical usage boundaries. Official logos, wordmarks and distinctive artwork are governed separately by [`docs/BRAND_GUIDELINES.md`](docs/BRAND_GUIDELINES.md).
 
 ## Contributing
 
@@ -390,3 +390,13 @@ Near-term priorities:
 - package a signed Linux review workstation.
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+---
+
+<div align="center">
+
+**Vidrensic — reconstruct the recording, preserve the evidence.**
+
+© 2026 imedkablavi. All rights reserved.
+
+</div>
