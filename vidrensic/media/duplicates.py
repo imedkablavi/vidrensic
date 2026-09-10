@@ -184,16 +184,19 @@ def build_signature(path: Path, *, sample_count: int = DEFAULT_SAMPLE_COUNT) -> 
     if not 1 <= sample_count <= MAX_SAMPLE_COUNT:
         raise ValueError(f"sample_count must be between 1 and {MAX_SAMPLE_COUNT}")
     artifact = _validate_source(path)
-    hashes = forensic_hashes_stable(artifact)
+    before = forensic_hashes_stable(artifact)
     probe = probe_video(artifact)
     frame_hashes: tuple[int, ...] = ()
     if probe.duration is not None and probe.duration > 0 and probe.codec:
         frame_hashes = _sample_frame_hashes(artifact, sample_count=sample_count, duration=probe.duration)
+    after = forensic_hashes_stable(artifact)
+    if before.sha256 != after.sha256 or before.sha512 != after.sha512:
+        raise DuplicateAnalysisError(f"media source changed during duplicate analysis: {artifact}")
     return MediaSignature(
         path=artifact,
         size_bytes=artifact.stat().st_size,
-        sha256=hashes.sha256,
-        sha512=hashes.sha512,
+        sha256=after.sha256,
+        sha512=after.sha512,
         duration_seconds=probe.duration,
         frame_hashes=frame_hashes,
     )
