@@ -94,4 +94,4 @@ def test_media_cli_decoder_error_regions(monkeypatch, tmp_path: Path, capsys) ->
     output = capsys.readouterr().out
     assert "Decoder error analysis complete" in output
     assert "Review required" in output
-    assert "08:00" in output
+    assert "00:08" in output
