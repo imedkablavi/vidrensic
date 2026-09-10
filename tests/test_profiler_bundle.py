@@ -69,6 +69,8 @@ def _report(source: Path) -> TriageReport:
                 }
             ],
         },
+        recommended_actions=("review ranked family evidence",),
+        notes=("synthetic test fixture",),
     )
 
 
