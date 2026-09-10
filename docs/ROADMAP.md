@@ -145,8 +145,9 @@ Primary review UX target:
 - [ ] thumbnail/contact-sheet strip
 - [ ] frame stepping and playback-speed controls
 - [ ] seek watchdog/reload-position recovery
-- [ ] bookmarks and analyst notes
-- [ ] KEEP/review state
+- [x] auditable review state (`REVIEW` / `KEEP` / `DISCARD`)
+- [x] bookmarks and analyst notes data layer
+- [ ] graphical workstation UI
 - [ ] safe derived-copy deletion plans bound to file identity
 - [ ] deletion audit/tombstones
 
