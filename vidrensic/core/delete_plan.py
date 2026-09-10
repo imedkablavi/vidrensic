@@ -139,6 +139,11 @@ def _load_plan(path: Path, case_root: Path) -> DeletionPlan:
     resolved = candidate.resolve(strict=True)
     if not resolved.is_file():
         raise DeletionPlanError("deletion plan must be a regular file")
+    expected_root = case_root.expanduser().resolve(strict=True)
+    try:
+        resolved.relative_to(expected_root)
+    except ValueError as exc:
+        raise DeletionPlanError("deletion plan must be inside the case root") from exc
     try:
         data = load_bounded_json(
             resolved,
@@ -153,7 +158,6 @@ def _load_plan(path: Path, case_root: Path) -> DeletionPlan:
     if not isinstance(data, dict) or data.get("schema_version") != SCHEMA_VERSION:
         raise DeletionPlanError("unsupported deletion plan schema")
     plan_root = Path(str(data.get("case_root", ""))).expanduser().resolve()
-    expected_root = case_root.expanduser().resolve(strict=True)
     if plan_root != expected_root:
         raise DeletionPlanError("deletion plan is bound to a different case root")
     plan_id = data.get("plan_id")
@@ -169,6 +173,7 @@ def _load_plan(path: Path, case_root: Path) -> DeletionPlan:
     if not isinstance(raw_targets, list) or not 1 <= len(raw_targets) <= MAX_PLAN_ENTRIES:
         raise DeletionPlanError("deletion plan has an invalid target collection")
     targets: list[DeletionTarget] = []
+    seen: set[str] = set()
     for raw in raw_targets:
         if not isinstance(raw, dict):
             raise DeletionPlanError("deletion plan target is not an object")
@@ -180,6 +185,8 @@ def _load_plan(path: Path, case_root: Path) -> DeletionPlan:
         reason = raw.get("reason")
         if not all(isinstance(value, str) for value in (target_id, relative, sha256, kind, reason)):
             raise DeletionPlanError("deletion plan target contains invalid text")
+        if not 1 <= len(target_id) <= 128 or not 1 <= len(relative) <= 4096 or not 1 <= len(kind) <= 64:
+            raise DeletionPlanError("deletion plan target text exceeds safety limits")
         if not isinstance(size_bytes, int) or size_bytes < 0:
             raise DeletionPlanError("deletion plan target contains invalid size")
         if len(sha256) != 64:
@@ -189,8 +196,12 @@ def _load_plan(path: Path, case_root: Path) -> DeletionPlan:
         except ValueError as exc:
             raise DeletionPlanError("deletion plan target contains an invalid SHA-256") from exc
         target_path = _allowed_target(expected_root, expected_root / relative)
-        if target_path.relative_to(expected_root).as_posix() != relative:
+        normalized = target_path.relative_to(expected_root).as_posix()
+        if normalized != relative:
             raise DeletionPlanError("deletion plan target path normalization mismatch")
+        if relative in seen:
+            raise DeletionPlanError("deletion plan contains duplicate targets")
+        seen.add(relative)
         targets.append(
             DeletionTarget(
                 target_id=target_id,
@@ -219,7 +230,12 @@ def _append_tombstone(path: Path, result: dict[str, object]) -> None:
         raise DeletionPlanError(f"unable to open tombstone log safely: {exc}") from exc
     try:
         payload = (json.dumps(result, sort_keys=True) + "\n").encode("utf-8")
-        os.write(fd, payload)
+        view = memoryview(payload)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise DeletionPlanError("tombstone write made no progress")
+            view = view[written:]
         os.fsync(fd)
         os.fchmod(fd, PRIVATE_FILE_MODE)
     finally:
@@ -304,5 +320,5 @@ def execute_deletion_plan(
             "reason": target.reason,
         }
         results.append(result)
-        _append_tombstone(tombstones, result)
+        _append_tombstone(tombstone_resolved, result)
     return results
