@@ -57,7 +57,9 @@ def test_scene_cli_json(monkeypatch, tmp_path: Path, capsys) -> None:
 
 
 def test_scene_cli_rejects_zero_samples() -> None:
-    assert scene_cli.main(["video.mp4", "--out", "sheet.png", "--samples", "0"]) == 2
+    with pytest.raises(SystemExit) as exc_info:
+        scene_cli.main(["video.mp4", "--out", "sheet.png", "--samples", "0"])
+    assert exc_info.value.code == 2
 
 
 def test_scene_cli_cleans_sheet_when_manifest_fails(
