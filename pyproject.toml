@@ -42,7 +42,7 @@ Issues = "https://github.com/imedkablavi/vidrensic/issues"
 Documentation = "https://github.com/imedkablavi/vidrensic/tree/main/docs"
 
 [project.scripts]
-vidrensic = "vidrensic.cli_ext:main"
+vidrensic = "vidrensic.product_cli:main"
 vidrensic-media = "vidrensic.media_cli:main"
 vidrensic-export = "vidrensic.export_cli:main"
 
