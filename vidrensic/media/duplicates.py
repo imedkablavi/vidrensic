@@ -246,7 +246,7 @@ def compare_signatures(
 
     similarities = [
         1.0 - (_hamming(a, b) / 64.0)
-        for a, b in zip(left.frame_hashes[:usable], right.frame_hashes[:usable])
+        for a, b in zip(left.frame_hashes[:usable], right.frame_hashes[:usable], strict=True)
     ]
     median_similarity = _median(similarities)
     matched_ratio = sum(value >= frame_match_threshold for value in similarities) / usable
