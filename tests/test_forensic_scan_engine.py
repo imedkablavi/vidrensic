@@ -68,12 +68,11 @@ def test_deep_clean_evidence_can_pass() -> None:
     ) is EvidenceStatus.PASS
 
 
-def test_deep_requires_expected_duration_at_entrypoint(monkeypatch, tmp_path: Path) -> None:
+def test_deep_requires_expected_duration_at_entrypoint(tmp_path: Path) -> None:
     artifact = tmp_path / "candidate.mp4"
     artifact.write_bytes(b"video")
     with pytest.raises(ValueError, match="requires expected_duration"):
         run_forensic_scan(artifact, profile="deep")
-    monkeypatch.setattr("vidrensic.media.forensic_scan_engine.forensic_hashes_stable", lambda path: _HASHES)
 
 
 def test_deep_never_passes_without_complete_timeline() -> None:
