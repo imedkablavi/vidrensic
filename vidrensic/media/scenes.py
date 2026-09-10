@@ -124,14 +124,6 @@ def create_contact_sheet(
 
     artifact = _validate_source(path)
     destination = _validate_output(output)
-    before = forensic_hashes_stable(artifact)
-    probe = probe_video(artifact)
-    if probe.codec is None or probe.duration is None or probe.duration <= 0:
-        raise SceneSamplingError("source does not expose a usable video duration")
-
-    columns, rows = _grid(sample_count)
-    interval = probe.duration / sample_count
-    fps = sample_count / probe.duration
     suffix = destination.suffix.lower()
     if suffix in {".jpg", ".jpeg"}:
         muxer = "mjpeg"
@@ -140,6 +132,14 @@ def create_contact_sheet(
     else:
         raise ValueError("contact-sheet output must use .png, .jpg, or .jpeg")
 
+    before = forensic_hashes_stable(artifact)
+    probe = probe_video(artifact)
+    if probe.codec is None or probe.duration is None or probe.duration <= 0:
+        raise SceneSamplingError("source does not expose a usable video duration")
+
+    columns, rows = _grid(sample_count)
+    interval = probe.duration / sample_count
+    fps = sample_count / probe.duration
     vf = (
         f"fps={fps:.12f},"
         f"scale={thumbnail_width}:-2:force_original_aspect_ratio=decrease,"
