@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 
 from vidrensic.core.case import Case
+from vidrensic.core.delete_plan import DeletionPlanError, create_deletion_plan, execute_deletion_plan
 from vidrensic.core.review import ReviewState
 from vidrensic.media.review_timeline import ReviewTimelineError, build_review_timeline
 
@@ -47,6 +48,16 @@ def _state(value: str) -> ReviewState:
         raise argparse.ArgumentTypeError("state must be REVIEW, KEEP or DISCARD") from exc
 
 
+def _case_owned_path(case: Case, path: Path) -> Path:
+    candidate = path.expanduser()
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(case.root)
+    except ValueError as exc:
+        raise ValueError("output path must be inside the case root") from exc
+    return resolved
+
+
 def _print_item(item) -> None:
     duration = "-" if item.duration_seconds is None else f"{item.duration_seconds:.3f}s"
     print(f"{item.item_id}  {item.state.value:<7}  {item.kind:<16}  {duration:<12}  {item.artifact}")
@@ -57,7 +68,7 @@ def _print_item(item) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="vidrensic-review",
-        description="Manage auditable analyst review state, notes and bookmarks.",
+        description="Manage auditable analyst review state, notes, bookmarks and safe derived deletion plans.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -75,6 +86,27 @@ def main(argv: list[str] | None = None) -> int:
     timeline_parser.add_argument("--out", type=Path, required=True)
     timeline_parser.add_argument("--replace", action="store_true")
     timeline_parser.add_argument("--json", action="store_true")
+
+    deletion_plan_parser = subparsers.add_parser(
+        "deletion-plan",
+        help="create a hash-bound, non-destructive plan for derived/work files",
+    )
+    deletion_plan_parser.add_argument("--case", type=Path, required=True)
+    deletion_plan_parser.add_argument("--path", type=Path, action="append", required=True)
+    deletion_plan_parser.add_argument("--reason", required=True)
+    deletion_plan_parser.add_argument("--out", type=Path, required=True)
+    deletion_plan_parser.add_argument("--replace", action="store_true")
+    deletion_plan_parser.add_argument("--json", action="store_true")
+
+    deletion_execute_parser = subparsers.add_parser(
+        "execute-deletion",
+        help="explicitly execute a previously created deletion plan",
+    )
+    deletion_execute_parser.add_argument("--case", type=Path, required=True)
+    deletion_execute_parser.add_argument("--plan", type=Path, required=True)
+    deletion_execute_parser.add_argument("--tombstones", type=Path)
+    deletion_execute_parser.add_argument("--execute", action="store_true", help="required confirmation for deletion")
+    deletion_execute_parser.add_argument("--json", action="store_true")
 
     state_parser = subparsers.add_parser("set-state", help="set KEEP/REVIEW/DISCARD state")
     state_parser.add_argument("--case", type=Path, required=True)
@@ -133,6 +165,70 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Output       {output.expanduser().resolve()}")
             return 0
 
+        if args.command == "deletion-plan":
+            output = _case_owned_path(case, args.out)
+            plan = create_deletion_plan(
+                case.root,
+                args.path,
+                actor=case.examiner,
+                reason=args.reason,
+            )
+            output = plan.write_json(output, replace=args.replace)
+            case.audit.append(
+                "review.deletion-plan.created",
+                {
+                    "plan_id": plan.plan_id,
+                    "targets": [
+                        {"relative_path": target.relative_path, "sha256": target.sha256}
+                        for target in plan.targets
+                    ],
+                    "reason": args.reason,
+                },
+                actor=case.examiner,
+            )
+            if args.json:
+                print(json.dumps(plan.to_dict(), indent=2, sort_keys=True))
+            else:
+                print("Deletion plan created (no files deleted)")
+                print()
+                print(f"Plan ID      {plan.plan_id}")
+                print(f"Targets      {len(plan.targets):,}")
+                for target in plan.targets:
+                    print(
+                        f"  {target.relative_path}  {target.size_bytes:,} bytes  {target.sha256}"
+                    )
+                print(f"Output       {output}")
+            return 0
+
+        if args.command == "execute-deletion":
+            if not args.execute:
+                print("Refusing to delete files: pass --execute explicitly.", file=sys.stderr)
+                return 2
+            plan_path = _case_owned_path(case, args.plan)
+            tombstone_path = None if args.tombstones is None else _case_owned_path(case, args.tombstones)
+            results = execute_deletion_plan(
+                case.root,
+                plan_path,
+                tombstone_path=tombstone_path,
+                actor=case.examiner,
+            )
+            case.audit.append(
+                "review.deletion-plan.executed",
+                {
+                    "plan": str(plan_path.relative_to(case.root)),
+                    "tombstones": str((tombstone_path or (case.root / "state" / "deletion_tombstones.jsonl")).relative_to(case.root)),
+                    "deleted_targets": [item["relative_path"] for item in results],
+                },
+                actor=case.examiner,
+            )
+            if args.json:
+                print(json.dumps(results, indent=2, sort_keys=True))
+            else:
+                print(f"Deleted {len(results):,} derived/work files")
+                for result in results:
+                    print(f"  {result['relative_path']}  {result['sha256']}")
+            return 0
+
         if args.command == "set-state":
             item = case.review.set_state(
                 args.item,
@@ -156,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"Bookmark created: {bookmark.bookmark_id} @ {bookmark.timestamp_seconds:.3f}s")
         return 0
-    except (OSError, RuntimeError, ReviewTimelineError, ValueError, KeyError) as exc:
+    except (OSError, RuntimeError, DeletionPlanError, ReviewTimelineError, ValueError, KeyError) as exc:
         print(f"Unable to update review state: {exc}", file=sys.stderr)
         return 2
 
