@@ -44,6 +44,7 @@ Documentation = "https://github.com/imedkablavi/vidrensic/tree/main/docs"
 [project.scripts]
 vidrensic = "vidrensic.product_cli:main"
 vidrensic-media = "vidrensic.media_cli:main"
+vidrensic-forensic-scan = "vidrensic.forensic_scan_cli:main"
 vidrensic-export = "vidrensic.export_cli:main"
 vidrensic-profiler = "vidrensic.profiler_cli:main"
 vidrensic-scenes = "vidrensic.scene_cli:main"
