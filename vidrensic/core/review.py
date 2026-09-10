@@ -221,6 +221,9 @@ class ReviewStore:
             ).fetchone()
             if row:
                 return self.get_item(str(row["item_id"]))
+            count = conn.execute("SELECT COUNT(*) AS count FROM items").fetchone()["count"]
+            if int(count) >= MAX_ITEMS:
+                raise ValueError(f"review item limit of {MAX_ITEMS} reached")
             conn.execute(
                 """
                 INSERT INTO items(
@@ -351,6 +354,12 @@ class ReviewStore:
         bookmark_id = str(uuid.uuid4())
         now = self._now()
         with self._connect() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) AS count FROM bookmarks WHERE item_id=?",
+                (item_id,),
+            ).fetchone()["count"]
+            if int(count) >= MAX_BOOKMARKS:
+                raise ValueError(f"bookmark limit of {MAX_BOOKMARKS} reached for item")
             conn.execute(
                 """
                 INSERT INTO bookmarks(
