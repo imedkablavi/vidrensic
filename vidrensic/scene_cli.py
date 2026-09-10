@@ -42,11 +42,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--case", type=Path)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    manifest = args.out.with_suffix(args.out.suffix + ".json")
+
+    for reserved in (args.out, manifest):
+        if reserved.exists() or reserved.is_symlink():
+            parser.error(f"output already exists: {reserved}")
 
     case = Case.load(args.case) if args.case else None
     details = {
         "source": str(args.source),
         "output": str(args.out),
+        "manifest": str(manifest),
         "samples": args.samples,
         "thumb_width": args.thumb_width,
         "timeout": args.timeout,
@@ -69,9 +75,18 @@ def main(argv: list[str] | None = None) -> int:
             thumbnail_width=args.thumb_width,
             timeout=args.timeout,
         )
-        manifest = args.out.with_suffix(args.out.suffix + ".json")
         report.write_json(manifest)
     except (OSError, RuntimeError, ValueError) as exc:
+        try:
+            if args.out.exists() and not args.out.is_symlink():
+                args.out.unlink()
+        except OSError:
+            pass
+        try:
+            if manifest.exists() and not manifest.is_symlink():
+                manifest.unlink()
+        except OSError:
+            pass
         if case and job:
             case.jobs.fail(job.job_id, f"{type(exc).__name__}: {exc}")
             case.audit.append(
