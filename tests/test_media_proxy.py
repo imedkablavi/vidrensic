@@ -67,7 +67,7 @@ def test_transcode_proxy_requires_mp4_output(tmp_path: Path) -> None:
     source = tmp_path / "source.mp4"
     source.write_bytes(b"source")
 
-    with pytest.raises(ValueError, match="\.mp4"):
+    with pytest.raises(ValueError, match=r"\.mp4"):
         proxy.transcode_proxy(source, tmp_path / "proxy.mkv")
 
 
