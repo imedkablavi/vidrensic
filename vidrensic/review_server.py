@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from vidrensic.core.case import Case
+from vidrensic.core.candidate_metadata import CandidateMetadataError
 from vidrensic.core.hashing import forensic_hashes_stable
 from vidrensic.core.review import ReviewState
 from vidrensic.media.review_timeline import ReviewTimelineError, build_review_timeline
@@ -140,6 +141,14 @@ def _discover_reports(case: Case, item_sha256: str) -> tuple[Path | None, Path |
     return contract, timeline, decoder
 
 
+def _candidate_metadata(case: Case, item_id: str, artifact_sha256: str) -> dict[str, Any]:
+    try:
+        metadata = case.candidate_metadata.get(item_id, artifact_sha256)
+    except CandidateMetadataError as exc:
+        raise ReviewServerError(str(exc)) from exc
+    return metadata.to_dict()
+
+
 def _items_payload(case: Case, state: ReviewState | None) -> list[dict[str, Any]]:
     items = case.review.list_items(state=state, limit=1000)
     payload: list[dict[str, Any]] = []
@@ -151,6 +160,7 @@ def _items_payload(case: Case, state: ReviewState | None) -> list[dict[str, Any]
             changed = True
         contract, timeline, decoder = _discover_reports(case, item.artifact_sha256)
         bookmarks = case.review.list_bookmarks(item.item_id, limit=1000)
+        metadata = _candidate_metadata(case, item.item_id, item.artifact_sha256)
         payload.append(
             {
                 **item.to_dict(),
@@ -158,6 +168,7 @@ def _items_payload(case: Case, state: ReviewState | None) -> list[dict[str, Any]
                 "timeline_available": contract is not None or timeline is not None,
                 "decoder_available": decoder is not None,
                 "bookmark_count": len(bookmarks),
+                "candidate_metadata": metadata,
             }
         )
     return payload
@@ -170,13 +181,22 @@ class _ReviewHandler(BaseHTTPRequestHandler):
     def review_server(self) -> "ReviewHTTPServer":
         return self.server  # type: ignore[return-value]
 
-    def _send(self, status: int, body: bytes, content_type: str = "application/json; charset=utf-8", headers: dict[str, str] | None = None) -> None:
+    def _send(
+        self,
+        status: int,
+        body: bytes,
+        content_type: str = "application/json; charset=utf-8",
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'",
+        )
         for name, value in (headers or {}).items():
             self.send_header(name, value)
         self.end_headers()
@@ -233,6 +253,10 @@ class _ReviewHandler(BaseHTTPRequestHandler):
             if match:
                 self._api_item(match.group(1))
                 return
+            match = re.fullmatch(r"/api/metadata/([A-Za-z0-9-]{1,80})", parsed.path)
+            if match:
+                self._api_metadata(match.group(1))
+                return
             match = re.fullmatch(r"/api/timeline/([A-Za-z0-9-]{1,80})", parsed.path)
             if match:
                 self._api_timeline(match.group(1))
@@ -242,7 +266,14 @@ class _ReviewHandler(BaseHTTPRequestHandler):
                 self._media(match.group(1))
                 return
             self._json(404, {"error": "not found"})
-        except (KeyError, ValueError, ReviewServerError, OSError, ReviewTimelineError) as exc:
+        except (
+            KeyError,
+            ValueError,
+            ReviewServerError,
+            OSError,
+            CandidateMetadataError,
+            ReviewTimelineError,
+        ) as exc:
             self._json(400, {"error": str(exc)})
 
     def do_POST(self) -> None:
@@ -282,7 +313,20 @@ class _ReviewHandler(BaseHTTPRequestHandler):
                 **item.to_dict(),
                 "artifact_changed": changed,
                 "bookmarks": [bookmark.to_dict() for bookmark in self.review_server.case.review.list_bookmarks(item_id)],
+                "candidate_metadata": _candidate_metadata(
+                    self.review_server.case,
+                    item_id,
+                    item.artifact_sha256,
+                ),
             },
+        )
+
+    def _api_metadata(self, item_id: str) -> None:
+        item_id = _safe_item_id(item_id)
+        item = self.review_server.case.review.get_item(item_id)
+        self._json(
+            200,
+            _candidate_metadata(self.review_server.case, item_id, item.artifact_sha256),
         )
 
     def _api_timeline(self, item_id: str) -> None:
@@ -380,7 +424,13 @@ class _ReviewHandler(BaseHTTPRequestHandler):
             headers["Content-Range"] = f"bytes {start}-{end}/{size}"
 
         content_length = end - start + 1
-        mime = "video/mp4" if artifact.suffix.lower() == ".mp4" else "video/x-matroska" if artifact.suffix.lower() == ".mkv" else "application/octet-stream"
+        mime = (
+            "video/mp4"
+            if artifact.suffix.lower() == ".mp4"
+            else "video/x-matroska"
+            if artifact.suffix.lower() == ".mkv"
+            else "application/octet-stream"
+        )
         self.send_response(status)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(content_length))
@@ -402,7 +452,6 @@ class _ReviewHandler(BaseHTTPRequestHandler):
                 remaining -= len(chunk)
 
     def log_message(self, format: str, *args: Any) -> None:
-        # Avoid writing case-sensitive paths or analyst data to stdout.
         return
 
 
