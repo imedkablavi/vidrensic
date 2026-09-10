@@ -12,7 +12,7 @@ from vidrensic.media.probe import VideoProbe
 def _probe(path: Path) -> VideoProbe:
     return VideoProbe(
         path=path,
-        duration=2.0,
+        duration=1.2,
         codec="h264",
         width=1920,
         height=1080,
@@ -48,6 +48,9 @@ def test_timeline_infers_rate_and_keyframes(monkeypatch, tmp_path: Path) -> None
     assert report.keyframes == (0.0, 0.4, 0.8)
     assert report.inferred_frame_rate == pytest.approx(25.0)
     assert report.frame_rate_confidence == "High"
+    assert report.observed_duration_seconds == pytest.approx(1.2)
+    assert report.duration_delta_seconds == pytest.approx(0.0)
+    assert report.duration_confidence == "High"
     assert report.pts_non_monotonic == 0
     assert report.dts_non_monotonic == 0
     assert report.duplicate_pts == 0
@@ -82,6 +85,7 @@ def test_timeline_records_timing_anomalies(monkeypatch, tmp_path: Path) -> None:
         "dts-backwards",
         "large-gap",
     }
+    assert report.duration_confidence == "Low"
     assert report.frame_rate_confidence == "Low"
 
 
@@ -105,6 +109,7 @@ def test_timeline_is_bounded(monkeypatch, tmp_path: Path) -> None:
 
     assert report.frame_count == 3
     assert report.truncated is True
+    assert report.duration_confidence == "Low"
 
 
 def test_timeline_rejects_artifact_change(monkeypatch, tmp_path: Path) -> None:

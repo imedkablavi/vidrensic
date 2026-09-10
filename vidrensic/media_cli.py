@@ -184,6 +184,10 @@ def _run_timeline(args, case: Case | None) -> int:
             "duplicate_pts": report.duplicate_pts,
             "large_gaps": report.large_gaps,
             "truncated": report.truncated,
+            "duration_seconds": report.duration_seconds,
+            "observed_duration_seconds": report.observed_duration_seconds,
+            "duration_delta_seconds": report.duration_delta_seconds,
+            "duration_confidence": report.duration_confidence,
         }
         case.jobs.checkpoint(job.job_id, checkpoint)
         case.jobs.complete(job.job_id)
@@ -196,7 +200,9 @@ def _run_timeline(args, case: Case | None) -> int:
     print("Timeline analysis complete")
     print()
     print(f"Artifact     {report.artifact.name}")
-    print(f"Duration     {_duration(report.duration_seconds)}")
+    print(f"Duration     {_duration(report.duration_seconds)} nominal")
+    print(f"Observed     {_duration(report.observed_duration_seconds)} from frame timestamps")
+    print(f"Duration QC  {report.duration_confidence}")
     print(f"Frames       {report.frame_count:,}")
     print(f"Keyframes    {report.keyframe_count:,}")
     print(f"Frame rate   {_fps(report.inferred_frame_rate)}")
