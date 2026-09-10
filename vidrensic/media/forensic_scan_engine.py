@@ -301,6 +301,8 @@ def run_forensic_scan(
         raise ValueError("profile must be one of: quick, standard, deep")
     if expected_duration is not None and expected_duration <= 0:
         raise ValueError("expected_duration must be positive")
+    if profile == "deep" and expected_duration is None:
+        raise ValueError("deep profile requires expected_duration")
     if timeout is not None and timeout <= 0:
         raise ValueError("timeout must be positive")
     if not 1 <= decoder_max_windows <= 2048:
