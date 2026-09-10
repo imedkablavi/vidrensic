@@ -21,6 +21,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
+    if args.out.suffix.lower() != ".mp4":
+        parser.error("proxy output must use .mp4")
     if args.out.exists() or args.out.is_symlink():
         parser.error(f"output already exists: {args.out}")
     if args.manifest.exists() or args.manifest.is_symlink():
