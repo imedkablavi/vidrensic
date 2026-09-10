@@ -108,6 +108,8 @@ The command hashes the existing source in place, records only metadata and hashe
 
 This output is an internal `private-validation-case` staging manifest. It is deliberately **not** the public `real-corpus-index.json` format, does not admit a recorder as validated, does not manufacture ground truth and never copies or uploads the evidence source. A case should only be promoted into the real-recorder corpus after the legal/provenance and independent ground-truth requirements are actually satisfied.
 
+For an end-to-end restricted corpus run, use `python scripts/run_private_validation.py`. The runner rejects synthetic cases, refuses Git-working-tree paths by default, and writes the validation report as owner-only `0600` JSON. See `docs/PRIVATE_VALIDATION_RUNBOOK.md` for the lab workflow.
+
 ## Status semantics
 
 - `PASS`: required validation actually ran and no unresolved hard condition remains.
