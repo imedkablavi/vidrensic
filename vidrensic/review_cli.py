@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 
 from vidrensic.core.case import Case
+from vidrensic.core.candidate_metadata import CandidateMetadataError
 from vidrensic.core.delete_plan import DeletionPlanError, create_deletion_plan, execute_deletion_plan
 from vidrensic.core.review import ReviewState
 from vidrensic.media.review_timeline import ReviewTimelineError, build_review_timeline
@@ -28,6 +29,16 @@ def _nonnegative_float(value: str) -> float:
         raise argparse.ArgumentTypeError("expected seconds") from exc
     if result < 0:
         raise argparse.ArgumentTypeError("seconds cannot be negative")
+    return result
+
+
+def _unit_float(value: str) -> float:
+    try:
+        result = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected number") from exc
+    if not 0.0 <= result <= 1.0:
+        raise argparse.ArgumentTypeError("value must be between 0 and 1")
     return result
 
 
@@ -68,7 +79,10 @@ def _print_item(item) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="vidrensic-review",
-        description="Manage auditable analyst review state, notes, bookmarks and safe derived deletion plans.",
+        description=(
+            "Manage auditable analyst review state, candidate metadata provenance, "
+            "bookmarks and safe derived deletion plans."
+        ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -86,6 +100,50 @@ def main(argv: list[str] | None = None) -> int:
     timeline_parser.add_argument("--out", type=Path, required=True)
     timeline_parser.add_argument("--replace", action="store_true")
     timeline_parser.add_argument("--json", action="store_true")
+
+    metadata_set_parser = subparsers.add_parser(
+        "metadata-set",
+        help="set one provenance-backed candidate metadata claim",
+    )
+    metadata_set_parser.add_argument("--case", type=Path, required=True)
+    metadata_set_parser.add_argument("--item", required=True)
+    metadata_set_parser.add_argument("--sha256", type=_sha256, required=True)
+    metadata_set_parser.add_argument(
+        "--field",
+        choices=(
+            "recording_start_utc",
+            "recording_end_utc",
+            "camera_slot",
+            "source_label",
+            "format_family",
+        ),
+        required=True,
+    )
+    metadata_set_parser.add_argument("--value", required=True)
+    metadata_set_parser.add_argument(
+        "--source-kind",
+        choices=(
+            "native-metadata",
+            "timeline-report",
+            "reconstruction-manifest",
+            "operator-observation",
+        ),
+        required=True,
+    )
+    metadata_set_parser.add_argument("--source-path", type=Path)
+    metadata_set_parser.add_argument("--source-sha256", type=_sha256)
+    metadata_set_parser.add_argument("--evidence-pointer")
+    metadata_set_parser.add_argument("--confidence", type=_unit_float, default=1.0)
+    metadata_set_parser.add_argument("--json", action="store_true")
+
+    metadata_get_parser = subparsers.add_parser(
+        "metadata-get",
+        help="show candidate metadata claims and provenance",
+    )
+    metadata_get_parser.add_argument("--case", type=Path, required=True)
+    metadata_get_parser.add_argument("--item", required=True)
+    metadata_get_parser.add_argument("--sha256", type=_sha256, required=True)
+    metadata_get_parser.add_argument("--json", action="store_true")
 
     deletion_plan_parser = subparsers.add_parser(
         "deletion-plan",
@@ -105,7 +163,11 @@ def main(argv: list[str] | None = None) -> int:
     deletion_execute_parser.add_argument("--case", type=Path, required=True)
     deletion_execute_parser.add_argument("--plan", type=Path, required=True)
     deletion_execute_parser.add_argument("--tombstones", type=Path)
-    deletion_execute_parser.add_argument("--execute", action="store_true", help="required confirmation for deletion")
+    deletion_execute_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="required confirmation for deletion",
+    )
     deletion_execute_parser.add_argument("--json", action="store_true")
 
     state_parser = subparsers.add_parser("set-state", help="set KEEP/REVIEW/DISCARD state")
@@ -165,6 +227,47 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Output       {output.expanduser().resolve()}")
             return 0
 
+        if args.command == "metadata-set":
+            item = case.review.get_item(args.item)
+            if item.artifact_sha256 != args.sha256:
+                raise CandidateMetadataError("metadata artifact SHA-256 does not match the review item")
+            claim = case.candidate_metadata.set_claim(
+                args.item,
+                args.sha256,
+                field=args.field,
+                value=args.value,
+                source_kind=args.source_kind,
+                source_path=args.source_path,
+                source_sha256=args.source_sha256,
+                evidence_pointer=args.evidence_pointer,
+                confidence=args.confidence,
+            )
+            if args.json:
+                print(json.dumps(claim.to_dict(), indent=2, sort_keys=True))
+            else:
+                print(f"Metadata claim recorded: {claim.field}={claim.value}")
+                print(f"Source kind  {claim.source_kind}")
+                print(f"Confidence   {claim.confidence:.3f}")
+                print(f"Source SHA   {claim.source_sha256 or 'operator observation'}")
+            return 0
+
+        if args.command == "metadata-get":
+            item = case.review.get_item(args.item)
+            if item.artifact_sha256 != args.sha256:
+                raise CandidateMetadataError("metadata artifact SHA-256 does not match the review item")
+            metadata = case.candidate_metadata.get(args.item, args.sha256)
+            if args.json:
+                print(json.dumps(metadata.to_dict(), indent=2, sort_keys=True))
+            else:
+                print("Candidate metadata")
+                print()
+                for claim in metadata.claims:
+                    print(
+                        f"{claim.field} = {claim.value}  ({claim.source_kind}; "
+                        f"confidence={claim.confidence:.3f})"
+                    )
+            return 0
+
         if args.command == "deletion-plan":
             output = _case_owned_path(case, args.out)
             plan = create_deletion_plan(
@@ -216,7 +319,10 @@ def main(argv: list[str] | None = None) -> int:
                 "review.deletion-plan.executed",
                 {
                     "plan": str(plan_path.relative_to(case.root)),
-                    "tombstones": str((tombstone_path or (case.root / "state" / "deletion_tombstones.jsonl")).relative_to(case.root)),
+                    "tombstones": str(
+                        (tombstone_path or (case.root / "state" / "deletion_tombstones.jsonl"))
+                        .relative_to(case.root)
+                    ),
                     "deleted_targets": [item["relative_path"] for item in results],
                 },
                 actor=case.examiner,
@@ -226,7 +332,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"Deleted {len(results):,} derived/work files")
                 for result in results:
-                    print(f"  {result['relative_path']}  {result['sha256']}")
+                    print(f"  {result['relative_path']}  {result['expected_sha256']}")
             return 0
 
         if args.command == "set-state":
@@ -252,7 +358,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"Bookmark created: {bookmark.bookmark_id} @ {bookmark.timestamp_seconds:.3f}s")
         return 0
-    except (OSError, RuntimeError, DeletionPlanError, ReviewTimelineError, ValueError, KeyError) as exc:
+    except (
+        OSError,
+        RuntimeError,
+        CandidateMetadataError,
+        DeletionPlanError,
+        ReviewTimelineError,
+        ValueError,
+        KeyError,
+    ) as exc:
         print(f"Unable to update review state: {exc}", file=sys.stderr)
         return 2
 
